@@ -119,15 +119,11 @@ def attnfuse_fwd_kernel(
     if MASK_KIND == 1:                        # causal — always skip upper blocks
         n_lo = 0
         n_hi = tl.minimum((pid_m + 1) * BLOCK_M, N)
-    elif MASK_KIND == 2:                      # sliding window
-        if SKIP_EMPTY:
-            m_lo = pid_m * BLOCK_M
-            m_hi = m_lo + BLOCK_M
-            n_lo = tl.maximum(m_lo - WINDOW + 1, 0)
-            n_hi = tl.minimum(m_hi + WINDOW, N)
-        else:
-            n_lo = 0
-            n_hi = N
+    elif MASK_KIND == 2:                      # sliding window — always trim both ends
+        m_lo = pid_m * BLOCK_M
+        m_hi = m_lo + BLOCK_M
+        n_lo = tl.maximum(m_lo - WINDOW + 1, 0)
+        n_hi = tl.minimum(m_hi + WINDOW, N)
     else:                                     # full / dense
         n_lo = 0
         n_hi = N
