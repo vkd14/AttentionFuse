@@ -19,8 +19,8 @@ from __future__ import annotations
 from ..ir.high_level import Graph, MaskKind
 from ..ir.tiled import TileConfig
 
-# Tabulated Ampere-friendly configs.
-_AMPERE_TABLE: dict[int, TileConfig] = {
+# fp16/bf16 configs (2 bytes/element — 3 pipeline stages fit in 101 KB SMEM).
+_AMPERE_TABLE_F16: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     96:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
@@ -28,12 +28,23 @@ _AMPERE_TABLE: dict[int, TileConfig] = {
     256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
 }
 
+# fp32 configs (4 bytes/element — 3 stages would need 128 KB, over the 101 KB limit;
+# drop to 2 stages so peak SMEM = 2*(BN*D + BN*D)*4 + BM*D*4 ≤ 101 KB).
+_AMPERE_TABLE_F32: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
+    96:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
+    128: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=8, num_stages=2),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
+}
+
 
 def choose_tile_config(graph: Graph) -> TileConfig:
     """Return a tile config tuned for `graph` on RTX 3090 Ti."""
     head_dim = graph.q.head_dim
+    table = _AMPERE_TABLE_F32 if graph.q.dtype == "float32" else _AMPERE_TABLE_F16
 
-    cfg = _AMPERE_TABLE.get(head_dim)
+    cfg = table.get(head_dim)
     if cfg is None:
         # Conservative fallback: small blocks, low warp count.
         cfg = TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=2)

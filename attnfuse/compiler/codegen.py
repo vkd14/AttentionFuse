@@ -111,16 +111,24 @@ def attnfuse_fwd_kernel(
     if BIAS_KIND == 1:
         slope = tl.load(alibi_slopes_ptr + h)
 
-    # Determine the n-block range for this m-block
-    if MASK_KIND == 1 and SKIP_EMPTY:        # causal
+    # Determine the n-block range for this m-block.
+    # Causal always trims the upper triangle; sliding-window trims both ends
+    # when SKIP_EMPTY is set; dense iterates all blocks.
+    # Note: combine constexpr conditions with separate if/elif rather than
+    # `A and B` to avoid Triton tl.constexpr.__bool__ evaluation issues.
+    if MASK_KIND == 1:                        # causal — always skip upper blocks
         n_lo = 0
         n_hi = tl.minimum((pid_m + 1) * BLOCK_M, N)
-    elif MASK_KIND == 2 and SKIP_EMPTY:      # sliding window
-        m_lo = pid_m * BLOCK_M
-        m_hi = m_lo + BLOCK_M
-        n_lo = tl.maximum(m_lo - WINDOW + 1, 0)
-        n_hi = tl.minimum(m_hi + WINDOW, N)
-    else:
+    elif MASK_KIND == 2:                      # sliding window
+        if SKIP_EMPTY:
+            m_lo = pid_m * BLOCK_M
+            m_hi = m_lo + BLOCK_M
+            n_lo = tl.maximum(m_lo - WINDOW + 1, 0)
+            n_hi = tl.minimum(m_hi + WINDOW, N)
+        else:
+            n_lo = 0
+            n_hi = N
+    else:                                     # full / dense
         n_lo = 0
         n_hi = N
 
@@ -162,9 +170,22 @@ def attnfuse_fwd_kernel(
 
         if NORM_KIND == 0:
             # ----- Online softmax -----
-            m_new = tl.maximum(m_i, tl.max(s, axis=1))
-            alpha = tl.exp(m_i - m_new)
-            p     = tl.exp(s - m_new[:, None])
+            # Sliding-window can produce fully-masked blocks (all scores == -inf)
+            # when query row i has no keys within the window in this n-block.
+            # That causes  m_i - m_new == -inf - (-inf) == nan → corrupts acc.
+            # Dense and causal loop bounds guarantee at least one valid score per
+            # block, so the guard is only needed for sliding_window (MASK_KIND==2).
+            if MASK_KIND == 2:
+                block_max = tl.max(s, axis=1)
+                m_new     = tl.maximum(m_i, block_max)
+                all_masked  = (block_max == float("-inf"))
+                alpha       = tl.where(all_masked, 1.0, tl.exp(m_i - m_new))
+                safe_m_new  = tl.where(all_masked, tl.zeros_like(m_new), m_new)
+                p           = tl.exp(s - safe_m_new[:, None])
+            else:
+                m_new = tl.maximum(m_i, tl.max(s, axis=1))
+                alpha = tl.exp(m_i - m_new)
+                p     = tl.exp(s - m_new[:, None])
             l_i   = alpha * l_i + tl.sum(p, axis=1)
             acc   = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
             m_i   = m_new

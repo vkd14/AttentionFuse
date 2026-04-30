@@ -1,0 +1,17 @@
+model,variant,seqlen,baseline,latency_ms,peak_mem_mb,tflops
+bert-base,dense,512,naive,0.226,68.1,14.23
+bert-base,dense,512,sdpa,0.077,20.2,41.94
+bert-base,dense,512,flash_ref,0.098,20.1,32.77
+bert-base,dense,512,attnfuse,0.098,20.1,32.77
+bert-base,dense,1024,naive,0.783,224.1,16.46
+bert-base,dense,1024,sdpa,0.224,32.3,57.46
+bert-base,dense,1024,flash_ref,0.278,32.1,46.43
+bert-base,dense,1024,attnfuse,0.281,32.1,45.92
+bert-base,dense,2048,naive,4.831,824.1,10.67
+bert-base,dense,2048,sdpa,0.780,56.5,66.05
+bert-base,dense,2048,flash_ref,0.944,56.1,54.62
+bert-base,dense,2048,attnfuse,0.936,56.1,55.07
+bert-base,dense,4096,naive,15.080,3176.1,13.67
+bert-base,dense,4096,sdpa,2.945,104.9,70.01
+bert-base,dense,4096,flash_ref,3.483,104.1,59.19
+bert-base,dense,4096,attnfuse,3.524,104.1,58.51

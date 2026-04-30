@@ -1,0 +1,17 @@
+model,variant,seqlen,baseline,latency_ms,peak_mem_mb,tflops
+gpt2-small,causal,512,naive,0.372,68.4,8.67
+gpt2-small,causal,512,sdpa,0.066,20.2,49.15
+gpt2-small,causal,512,flash_ref,0.078,20.1,41.39
+gpt2-small,causal,512,attnfuse,0.086,20.1,37.45
+gpt2-small,causal,1024,naive,1.318,225.1,9.78
+gpt2-small,causal,1024,sdpa,0.170,32.3,75.80
+gpt2-small,causal,1024,flash_ref,0.204,32.1,63.23
+gpt2-small,causal,1024,attnfuse,0.211,32.1,61.08
+gpt2-small,causal,2048,naive,8.104,829.1,6.36
+gpt2-small,causal,2048,sdpa,0.469,56.5,109.89
+gpt2-small,causal,2048,flash_ref,0.570,56.1,90.36
+gpt2-small,causal,2048,attnfuse,0.577,56.1,89.40
+gpt2-small,causal,4096,naive,25.915,3192.1,7.96
+gpt2-small,causal,4096,sdpa,1.692,104.9,121.87
+gpt2-small,causal,4096,flash_ref,1.985,104.1,103.88
+gpt2-small,causal,4096,attnfuse,2.002,104.1,102.98
