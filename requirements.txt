@@ -1,0 +1,16 @@
+# Core
+torch>=2.2.0          # SDPA + FlashAttention-2 backend (Ampere/sm_86 supported)
+triton>=2.2.0         # Kernel codegen target. 2.2+ has good Ampere fp16/bf16 paths.
+numpy>=1.24
+
+# Models for benchmarks
+transformers>=4.40.0  # BERT-base, GPT-2
+datasets>=2.18.0      # for sample-input pipelines (optional)
+
+# Tooling
+pytest>=8.0
+pytest-xdist>=3.5
+matplotlib>=3.8       # plotting eval figures
+pandas>=2.2           # results aggregation
+rich>=13.7            # nicer benchmark output
+tabulate>=0.9

@@ -1,0 +1,51 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Triton / CUDA caches
+.triton_cache/
+~/.triton/
+*.ptx
+*.cubin
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test / profiling
+.pytest_cache/
+.coverage
+htmlcov/
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+
+# Generated kernels (regenerate on demand)
+attnfuse/_generated/
+
+# Result artefacts (large)
+results/raw/
+results/*.csv.gz
+*.npz
+*.pt
+*.pth
+
+# Local notes
+NOTES.local.md

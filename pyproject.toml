@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "attnfuse"
+version = "0.1.0"
+description = "An embedded Python DSL for attention mechanisms that compiles to fused Triton GPU kernels."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Varun D." }]
+keywords = ["attention", "transformer", "triton", "gpu", "dsl", "compiler"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.2.0",
+    "triton>=2.2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+bench = ["transformers>=4.40.0", "matplotlib>=3.8", "pandas>=2.2", "rich>=13.7", "tabulate>=0.9"]
+dev   = ["pytest>=8.0", "pytest-xdist>=3.5"]
+
+[project.scripts]
+attnfuse-bench = "benchmarks.bench_runner:main"
+
+[tool.setuptools]
+packages = ["attnfuse", "attnfuse.dsl", "attnfuse.ir", "attnfuse.compiler", "attnfuse.runtime", "attnfuse.reference"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
