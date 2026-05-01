@@ -75,3 +75,27 @@ def test_causal_alibi():
     got  = fn(Q, K, V)
     want = naive_attention(Q, K, V, causal=True, alibi_slopes=slopes)
     assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)
+
+
+def test_additive_bias():
+    """Externally-supplied (B,H,N,N) bias tensor added before softmax."""
+    @af.attention
+    def fn(Q, K, V):
+        s = af.scaled_dot_product(Q, K)
+        s = af.additive_bias(s)
+        return af.softmax(s) @ V
+
+    B, H, N, D = 1, 4, 128, 64
+    Q, K, V = _inputs(B=B, H=H, N=N, D=D)
+    scale = 1.0 / math.sqrt(D)
+    bias = torch.randn(B, H, N, N, device="cuda", dtype=torch.float16) * 0.1
+
+    got  = fn(Q, K, V, bias=bias)
+
+    # Reference: naive attention with explicit bias addition
+    scores = torch.einsum("bhmd,bhnd->bhmn", Q.float(), K.float()) * scale
+    scores = scores + bias.float()
+    probs  = torch.softmax(scores, dim=-1).to(Q.dtype)
+    want   = torch.einsum("bhmn,bhnd->bhmd", probs, V)
+
+    assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)

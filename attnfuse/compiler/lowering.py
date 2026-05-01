@@ -55,11 +55,8 @@ def lower_to_tiled(graph: Graph) -> TiledKernel:
     if biases:
         bias_kind = biases[0].kind
         bias_num_heads = biases[0].num_heads
-        if bias_kind is BiasKind.ADDITIVE:
-            raise NotImplementedError(
-                "Externally-supplied additive bias not yet wired into the runtime; "
-                "use af.alibi() instead, or extend dispatch.run_attention to pass it."
-            )
+        # ADDITIVE: the real tensor is injected at dispatch time via bias= kwarg;
+        # lowering just marks the kind so codegen gates the tile load.
     else:
         bias_kind, bias_num_heads = None, None
 

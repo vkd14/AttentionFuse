@@ -32,6 +32,7 @@ class LaunchBundle:
     sm_scale: float
     block_m:  int
     bias_kind: int      # cached to avoid dict lookup in hot path
+    has_additive_bias: bool  # True when BIAS_KIND == 2
 
 
 def _materialise(src: str) -> Callable:
@@ -73,6 +74,7 @@ def get_or_compile(graph: Graph) -> LaunchBundle:
             sm_scale=sm_scale,
             block_m=cexprs["BLOCK_M"],
             bias_kind=cexprs["BIAS_KIND"],
+            has_additive_bias=cexprs["BIAS_KIND"] == 2,
         )
         _cache[key] = bundle
         return bundle

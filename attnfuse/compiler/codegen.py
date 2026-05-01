@@ -30,7 +30,7 @@ from ..ir.tiled import TiledKernel
 
 # Encoding for constexpr flags (keep stable; codegen template hardcodes them).
 _MASK_FULL, _MASK_CAUSAL, _MASK_SLIDING = 0, 1, 2
-_BIAS_NONE, _BIAS_ALIBI = 0, 1
+_BIAS_NONE, _BIAS_ALIBI, _BIAS_ADDITIVE = 0, 1, 2
 _NORM_SOFTMAX, _NORM_RELU = 0, 1
 
 
@@ -43,7 +43,8 @@ def _encode_mask(k: MaskKind) -> int:
 def _encode_bias(k: BiasKind | None) -> int:
     if k is None:
         return _BIAS_NONE
-    return {BiasKind.ALIBI: _BIAS_ALIBI}[k]
+    return {BiasKind.ALIBI: _BIAS_ALIBI,
+            BiasKind.ADDITIVE: _BIAS_ADDITIVE}[k]
 
 
 def _encode_norm(k: NormKind) -> int:
@@ -72,12 +73,14 @@ def attnfuse_fwd_kernel(
     stride_ob, stride_oh, stride_om, stride_od,
     B, H, N,
     alibi_slopes_ptr,                  # only read when BIAS_KIND == 1
+    bias_ptr,                          # only read when BIAS_KIND == 2
+    stride_biasb, stride_biash, stride_biasm, stride_biasn,
     WINDOW: tl.constexpr,              # only read when MASK_KIND  == 2
     HEAD_DIM: tl.constexpr,
     BLOCK_M:  tl.constexpr,
     BLOCK_N:  tl.constexpr,
     MASK_KIND: tl.constexpr,           # 0 full, 1 causal, 2 sliding-window
-    BIAS_KIND: tl.constexpr,           # 0 none, 1 alibi
+    BIAS_KIND: tl.constexpr,           # 0 none, 1 alibi, 2 additive-external
     NORM_KIND: tl.constexpr,           # 0 softmax, 1 relu
     SKIP_EMPTY: tl.constexpr,
 ):
@@ -151,6 +154,15 @@ def attnfuse_fwd_kernel(
             # out anyway so the sign-of-difference does not matter.
             dist = tl.abs(offs_m[:, None] - cur_n[None, :])
             s = s + (-slope * dist.to(tl.float32))
+        elif BIAS_KIND == 2:                               # external (B,H,N,N) bias tensor
+            b_ptrs = (bias_ptr
+                      + b * stride_biasb
+                      + h * stride_biash
+                      + offs_m[:, None] * stride_biasm
+                      + cur_n[None, :] * stride_biasn)
+            b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+            b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
+            s = s + b_tile.to(tl.float32)
 
         # ----- Mask -----
         if MASK_KIND == 1:                                 # causal

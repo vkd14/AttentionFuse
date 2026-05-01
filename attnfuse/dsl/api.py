@@ -36,9 +36,14 @@ def scaled_dot_product(Q: TensorSym, K: TensorSym, scale: float | None = None) -
     return ScoreOp(kind=ScoreKind.SCALED_DOT, q=Q, k=K, scale=scale)
 
 
-def additive_bias(scores: Expr, bias: TensorSym) -> Expr:
-    """S' = S + bias.  `bias` may broadcast over the (M, N) tile."""
-    return BiasOp(kind=BiasKind.ADDITIVE, scores=scores, bias=bias)
+def additive_bias(scores: Expr) -> Expr:
+    """S' = S + bias  where bias is a (B, H, N, N) tensor injected at call time.
+
+    Pass the actual tensor at call time via the ``bias=`` keyword argument::
+
+        out = my_attn(Q, K, V, bias=bias_tensor)
+    """
+    return BiasOp(kind=BiasKind.ADDITIVE, scores=scores, bias=None)
 
 
 def causal(scores: Expr) -> Expr:
@@ -97,7 +102,7 @@ def attention(fn: Callable) -> Callable:
     graph: Graph | None = None
 
     @functools.wraps(fn)
-    def wrapper(Q, K, V, *, return_graph: bool = False, **kwargs):
+    def wrapper(Q, K, V, *, bias=None, return_graph: bool = False, **kwargs):
         nonlocal graph
         if graph is None:
             graph = trace_attention_fn(fn, Q, K, V)
@@ -109,7 +114,7 @@ def attention(fn: Callable) -> Callable:
             return graph
 
         from ..runtime.dispatch import run_attention
-        return run_attention(graph, Q, K, V, **kwargs)
+        return run_attention(graph, Q, K, V, bias=bias, **kwargs)
 
     wrapper.graph_fn = fn  # type: ignore[attr-defined]
     return wrapper

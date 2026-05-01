@@ -47,6 +47,13 @@ def _placeholder_slopes(device_str: str, dtype_str: str) -> torch.Tensor:
     return torch.empty(1, dtype=dtype, device=device_str)
 
 
+@functools.lru_cache(maxsize=8)
+def _placeholder_bias(device_str: str, dtype_str: str) -> torch.Tensor:
+    """4-D placeholder used as a dummy bias pointer when BIAS_KIND != 2."""
+    dtype = getattr(torch, dtype_str.replace("torch.", ""))
+    return torch.empty(1, 1, 1, 1, dtype=dtype, device=device_str)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -57,9 +64,18 @@ def run_attention(
     Q: torch.Tensor,
     K: torch.Tensor,
     V: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
     out: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    """Launch the fused kernel and return the output tensor (B, H, N, D)."""
+    """Launch the fused kernel and return the output tensor (B, H, N, D).
+
+    Args:
+        graph:  compiled attention graph (from @af.attention tracing).
+        Q, K, V: real GPU tensors of shape (B, H, N, D).
+        bias:   optional (B, H, N, N) additive bias tensor, required when
+                the graph was built with ``af.additive_bias()``.
+        out:    optional pre-allocated output tensor; allocated if None.
+    """
     if not (Q.is_cuda and K.is_cuda and V.is_cuda):
         raise RuntimeError("AttnFuse requires Q/K/V on a CUDA device.")
     if Q.shape != K.shape or K.shape != V.shape:
@@ -75,10 +91,22 @@ def run_attention(
 
     grid = (triton_cdiv(N, bundle.block_m), B * H)
 
+    # ALiBi slopes (BIAS_KIND == 1)
     if bundle.bias_kind == 1:
         slopes = _alibi_slopes(H, str(Q.device), str(Q.dtype))
     else:
         slopes = _placeholder_slopes(str(Q.device), str(Q.dtype))
+
+    # External additive bias tensor (BIAS_KIND == 2)
+    if bundle.has_additive_bias:
+        if bias is None:
+            raise RuntimeError(
+                "This attention graph was built with af.additive_bias(); "
+                "you must pass bias=<tensor of shape (B,H,N,N)> at call time."
+            )
+        b = bias
+    else:
+        b = _placeholder_bias(str(Q.device), str(Q.dtype))
 
     bundle.jit_fn[grid](
         Q, K, V, out,
@@ -89,6 +117,8 @@ def run_attention(
         out.stride(0), out.stride(1), out.stride(2), out.stride(3),
         B, H, N,
         slopes,
+        b,
+        b.stride(0), b.stride(1), b.stride(2), b.stride(3),
         **bundle.cexprs,
         **bundle.meta,
     )
