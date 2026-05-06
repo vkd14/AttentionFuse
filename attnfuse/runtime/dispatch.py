@@ -54,6 +54,13 @@ def _placeholder_bias(device_str: str, dtype_str: str) -> torch.Tensor:
     return torch.empty(1, 1, 1, 1, dtype=dtype, device=device_str)
 
 
+@functools.lru_cache(maxsize=8)
+def _placeholder_rope(device_str: str, dtype_str: str) -> torch.Tensor:
+    """2-D (1, 1) placeholder used as a dummy cos/sin pointer when ROPE_KIND != 1."""
+    dtype = getattr(torch, dtype_str.replace("torch.", ""))
+    return torch.empty(1, 1, dtype=dtype, device=device_str)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -65,6 +72,8 @@ def run_attention(
     K: torch.Tensor,
     V: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
+    cos: Optional[torch.Tensor] = None,
+    sin: Optional[torch.Tensor] = None,
     out: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Launch the fused kernel and return the output tensor (B, H, N, D).
@@ -72,8 +81,10 @@ def run_attention(
     Args:
         graph:  compiled attention graph (from @af.attention tracing).
         Q, K, V: real GPU tensors of shape (B, H, N, D).
-        bias:   optional (B, H, N, N) additive bias tensor, required when
+        bias:   optional (B, H, N, N) additive bias tensor; required when
                 the graph was built with ``af.additive_bias()``.
+        cos, sin: optional RoPE tables of shape (N, D) or (1, 1, N, D);
+                required when the graph was built with ``af.rope()``.
         out:    optional pre-allocated output tensor; allocated if None.
     """
     if not (Q.is_cuda and K.is_cuda and V.is_cuda):
@@ -108,6 +119,20 @@ def run_attention(
     else:
         b = _placeholder_bias(str(Q.device), str(Q.dtype))
 
+    # Fused RoPE cos/sin tables (ROPE_KIND == 1)
+    if bundle.has_rope:
+        if cos is None or sin is None:
+            raise RuntimeError(
+                "This attention graph was built with af.rope(); "
+                "you must pass cos=<table> and sin=<table> at call time."
+            )
+        # Squeeze to 2-D (N, D) if caller passed (1, 1, N, D)
+        c = cos.squeeze(0).squeeze(0) if cos.dim() == 4 else cos
+        sn = sin.squeeze(0).squeeze(0) if sin.dim() == 4 else sin
+    else:
+        c = _placeholder_rope(str(Q.device), str(Q.dtype))
+        sn = _placeholder_rope(str(Q.device), str(Q.dtype))
+
     bundle.jit_fn[grid](
         Q, K, V, out,
         bundle.sm_scale,
@@ -119,6 +144,8 @@ def run_attention(
         slopes,
         b,
         b.stride(0), b.stride(1), b.stride(2), b.stride(3),
+        c, sn,
+        c.stride(0), c.stride(1),
         **bundle.cexprs,
         **bundle.meta,
     )

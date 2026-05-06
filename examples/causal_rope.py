@@ -1,7 +1,11 @@
 """GPT-NeoX style: causal attention + RoPE positional embeddings.
 
-Demonstrates DSL composability: RoPE pre-processing feeds directly into the
-AttnFuse causal kernel.  The only code the user writes is 7 lines.
+Two usage modes:
+  1. Pre-processing (existing): rotate Q/K in Python, pass rotated tensors to causal kernel.
+  2. Fused (new): use af.rope() combinator so rotation happens inside the Triton kernel.
+
+Both produce identical results; fused mode saves two host-side tensor operations
+and keeps the original Q/K unchanged.
 """
 import math
 import torch
@@ -9,13 +13,23 @@ import attnfuse as af
 from attnfuse.rope_utils import build_rope_cache, apply_rope
 
 
+# ---- Mode 1: pre-processing approach ----------------------------------------
+
 @af.attention
-def causal_rope_attn(Q, K, V):
+def causal_rope_preproc(Q, K, V):
     return af.softmax(af.causal(af.scaled_dot_product(Q, K))) @ V
 
 
+# ---- Mode 2: fused RoPE kernel -----------------------------------------------
+
+@af.attention
+def causal_rope_fused(Q, K, V):
+    s = af.rope(Q, K)          # rotation happens inside the Triton kernel
+    s = af.causal(s)
+    return af.softmax(s) @ V
+
+
 def reference(Q, K, V, cos, sin):
-    """Pure-PyTorch reference for correctness verification."""
     Qr = apply_rope(Q, cos, sin)
     Kr = apply_rope(K, cos, sin)
     scale = 1.0 / math.sqrt(Q.shape[-1])
@@ -37,15 +51,20 @@ if __name__ == "__main__":
     V = torch.randn_like(Q)
 
     cos, sin = build_rope_cache(N, D, device="cuda", dtype=dtype)
+    want = reference(Q, K, V, cos, sin)
 
-    # Pre-rotate Q and K, then run AttnFuse causal kernel
+    # Mode 1: pre-processing
     Q_rot = apply_rope(Q, cos, sin)
     K_rot = apply_rope(K, cos, sin)
-    got   = causal_rope_attn(Q_rot, K_rot, V)
+    out1  = causal_rope_preproc(Q_rot, K_rot, V)
+    err1  = (out1.float() - want.float()).abs().max().item()
+    print(f"[pre-process] max|err| = {err1:.4e}  (target < 2e-2)")
+    assert err1 < 2e-2, f"pre-processing RoPE failed: {err1}"
 
-    want = reference(Q, K, V, cos, sin)
-    max_err = (got.float() - want.float()).abs().max().item()
-    print(f"output shape : {got.shape}  dtype: {got.dtype}")
-    print(f"max |err|    : {max_err:.4e}  (target < 2e-2)")
-    assert max_err < 2e-2, f"RoPE + causal correctness check failed: {max_err}"
-    print("causal + RoPE: PASSED")
+    # Mode 2: fused
+    out2 = causal_rope_fused(Q, K, V, cos=cos, sin=sin)
+    err2 = (out2.float() - want.float()).abs().max().item()
+    print(f"[fused kernel] max|err| = {err2:.4e}  (target < 2e-2)")
+    assert err2 < 2e-2, f"fused RoPE failed: {err2}"
+
+    print("causal + RoPE (both modes): PASSED")

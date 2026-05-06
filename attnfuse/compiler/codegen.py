@@ -75,6 +75,8 @@ def attnfuse_fwd_kernel(
     alibi_slopes_ptr,                  # only read when BIAS_KIND == 1
     bias_ptr,                          # only read when BIAS_KIND == 2
     stride_biasb, stride_biash, stride_biasm, stride_biasn,
+    cos_ptr, sin_ptr,                  # only read when ROPE_KIND == 1; shape (N, D)
+    stride_rope_n, stride_rope_d,
     WINDOW: tl.constexpr,              # only read when MASK_KIND  == 2
     HEAD_DIM: tl.constexpr,
     BLOCK_M:  tl.constexpr,
@@ -82,6 +84,7 @@ def attnfuse_fwd_kernel(
     MASK_KIND: tl.constexpr,           # 0 full, 1 causal, 2 sliding-window
     BIAS_KIND: tl.constexpr,           # 0 none, 1 alibi, 2 additive-external
     NORM_KIND: tl.constexpr,           # 0 softmax, 1 relu
+    ROPE_KIND: tl.constexpr,           # 0 none, 1 fused RoPE (Su et al., 2021)
     SKIP_EMPTY: tl.constexpr,
 ):
     """One program per (batch, head, m_block)."""
@@ -94,6 +97,12 @@ def attnfuse_fwd_kernel(
     offs_n = tl.arange(0, BLOCK_N)
     offs_d = tl.arange(0, HEAD_DIM)
 
+    # RoPE rotate-half index mapping: d < D/2 → d+D/2, else → d-D/2
+    # rot_sign: -1 for first half (negated), +1 for second half
+    d_half     = HEAD_DIM // 2
+    rot_offs_d = tl.where(offs_d < d_half, offs_d + d_half, offs_d - d_half)
+    rot_sign   = tl.where(offs_d < d_half, -1.0, 1.0)
+
     # Pointers to the (b, h) slice
     Q_bh = Q_ptr + b * stride_qb + h * stride_qh
     K_bh = K_ptr + b * stride_kb + h * stride_kh
@@ -105,6 +114,18 @@ def attnfuse_fwd_kernel(
     q_mask = offs_m[:, None] < N
     q = tl.load(q_ptrs, mask=q_mask, other=0.0)
 
+    # Fused RoPE: rotate Q tile before the inner loop
+    if ROPE_KIND == 1:
+        q_cos_ptrs = cos_ptr + offs_m[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+        q_sin_ptrs = sin_ptr + offs_m[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+        q_cos = tl.load(q_cos_ptrs, mask=q_mask, other=0.0)
+        q_sin = tl.load(q_sin_ptrs, mask=q_mask, other=0.0)
+        q_rh_ptrs = Q_bh + offs_m[:, None] * stride_qm + rot_offs_d[None, :] * stride_qd
+        q_rot_half = tl.load(q_rh_ptrs, mask=q_mask, other=0.0)
+        q = (q.to(tl.float32) * q_cos.to(tl.float32)
+             + q_rot_half.to(tl.float32) * rot_sign[None, :] * q_sin.to(tl.float32)
+             ).to(q.dtype)
+
     # Online-softmax accumulators (in fp32 for numerical stability)
     m_i = tl.full([BLOCK_M], value=-float("inf"), dtype=tl.float32)
     l_i = tl.zeros([BLOCK_M], dtype=tl.float32)
@@ -115,8 +136,6 @@ def attnfuse_fwd_kernel(
         slope = tl.load(alibi_slopes_ptr + h)
 
     # Determine the n-block range for this m-block.
-    # Causal always trims the upper triangle; sliding-window trims both ends
-    # when SKIP_EMPTY is set; dense iterates all blocks.
     # Note: combine constexpr conditions with separate if/elif rather than
     # `A and B` to avoid Triton tl.constexpr.__bool__ evaluation issues.
     if MASK_KIND == 1:                        # causal — always skip upper blocks
@@ -143,15 +162,24 @@ def attnfuse_fwd_kernel(
         k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
         v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
 
+        # Fused RoPE: rotate K tile each iteration (positions change per n-block)
+        if ROPE_KIND == 1:
+            k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+            k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+            k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
+            k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            k = (k.to(tl.float32) * k_cos.to(tl.float32)
+                 + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
+                 ).to(k.dtype)
+
         # S = q @ k.T  -> (BLOCK_M, BLOCK_N)
         s = tl.dot(q, tl.trans(k))
         s = s * sm_scale
 
         # ----- Bias -----
         if BIAS_KIND == 1:                                 # ALiBi
-            # ALiBi adds  -slope * |i - j|  (or  -slope * (i - j)  for causal).
-            # We use the unsigned |i - j| form; for causal, j > i is masked
-            # out anyway so the sign-of-difference does not matter.
             dist = tl.abs(offs_m[:, None] - cur_n[None, :])
             s = s + (-slope * dist.to(tl.float32))
         elif BIAS_KIND == 2:                               # external (B,H,N,N) bias tensor
@@ -180,9 +208,6 @@ def attnfuse_fwd_kernel(
             # ----- Online softmax -----
             # Sliding-window can produce fully-masked blocks (all scores == -inf)
             # when query row i has no keys within the window in this n-block.
-            # That causes  m_i - m_new == -inf - (-inf) == nan → corrupts acc.
-            # Dense and causal loop bounds guarantee at least one valid score per
-            # block, so the guard is only needed for sliding_window (MASK_KIND==2).
             if MASK_KIND == 2:
                 block_max = tl.max(s, axis=1)
                 m_new     = tl.maximum(m_i, block_max)
@@ -226,6 +251,7 @@ def kernel_constexprs(kernel: TiledKernel) -> dict:
         "MASK_KIND": _encode_mask(kernel.mask_kind),
         "BIAS_KIND": _encode_bias(kernel.bias_kind),
         "NORM_KIND": _encode_norm(kernel.norm_kind),
+        "ROPE_KIND": kernel.rope_kind,
         "SKIP_EMPTY": int(kernel.config.skip_full_mask_blocks),
         "WINDOW": kernel.mask_window or 0,
     }

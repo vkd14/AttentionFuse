@@ -67,6 +67,8 @@ def lower_to_tiled(graph: Graph) -> TiledKernel:
         # Streaming softmax accumulators are unused in the ReLU path.
         cfg.use_streaming_softmax = False
 
+    rope_kind = 1 if score.rope else 0
+
     kernel = TiledKernel(
         head_dim=head_dim,
         dtype=graph.q.dtype,
@@ -76,6 +78,7 @@ def lower_to_tiled(graph: Graph) -> TiledKernel:
         bias_kind=bias_kind,
         bias_num_heads=bias_num_heads,
         norm_kind=norm.kind,
+        rope_kind=rope_kind,
         config=cfg,
         cache_key=graph.signature(),
     )

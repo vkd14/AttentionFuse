@@ -36,6 +36,18 @@ def scaled_dot_product(Q: TensorSym, K: TensorSym, scale: float | None = None) -
     return ScoreOp(kind=ScoreKind.SCALED_DOT, q=Q, k=K, scale=scale)
 
 
+def rope(Q: TensorSym, K: TensorSym, scale: float | None = None) -> Expr:
+    """S = (RoPE(Q) @ RoPE(K).T) * scale — fused rotary positional encoding.
+
+    Pass the precomputed tables at call time via ``cos=`` and ``sin=`` kwargs::
+
+        out = my_attn(Q, K, V, cos=cos_table, sin=sin_table)
+
+    Both tables should have shape (N, D) or (1, 1, N, D) and the same dtype as Q.
+    """
+    return ScoreOp(kind=ScoreKind.SCALED_DOT, q=Q, k=K, scale=scale, rope=True)
+
+
 def additive_bias(scores: Expr) -> Expr:
     """S' = S + bias  where bias is a (B, H, N, N) tensor injected at call time.
 
@@ -102,7 +114,8 @@ def attention(fn: Callable) -> Callable:
     graph: Graph | None = None
 
     @functools.wraps(fn)
-    def wrapper(Q, K, V, *, bias=None, return_graph: bool = False, **kwargs):
+    def wrapper(Q, K, V, *, bias=None, cos=None, sin=None,
+                return_graph: bool = False, **kwargs):
         nonlocal graph
         if graph is None:
             graph = trace_attention_fn(fn, Q, K, V)
@@ -114,7 +127,7 @@ def attention(fn: Callable) -> Callable:
             return graph
 
         from ..runtime.dispatch import run_attention
-        return run_attention(graph, Q, K, V, bias=bias, **kwargs)
+        return run_attention(graph, Q, K, V, bias=bias, cos=cos, sin=sin, **kwargs)
 
     wrapper.graph_fn = fn  # type: ignore[attr-defined]
     return wrapper

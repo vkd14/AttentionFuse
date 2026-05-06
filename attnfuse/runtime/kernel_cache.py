@@ -33,6 +33,7 @@ class LaunchBundle:
     block_m:  int
     bias_kind: int      # cached to avoid dict lookup in hot path
     has_additive_bias: bool  # True when BIAS_KIND == 2
+    has_rope: bool           # True when ROPE_KIND == 1
 
 
 def _materialise(src: str) -> Callable:
@@ -75,6 +76,7 @@ def get_or_compile(graph: Graph) -> LaunchBundle:
             block_m=cexprs["BLOCK_M"],
             bias_kind=cexprs["BIAS_KIND"],
             has_additive_bias=cexprs["BIAS_KIND"] == 2,
+            has_rope=cexprs.get("ROPE_KIND", 0) == 1,
         )
         _cache[key] = bundle
         return bundle

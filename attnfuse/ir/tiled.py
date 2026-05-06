@@ -74,5 +74,8 @@ class TiledKernel:
     # Tile / launch config
     config: TileConfig = field(default_factory=TileConfig)
 
+    # Positional encoding
+    rope_kind: int = 0   # 0 = no RoPE, 1 = fused RoPE (Su et al., 2021)
+
     # The compiler stamps the cache key here so the runtime can dedup.
     cache_key: str = ""

@@ -11,6 +11,7 @@ import torch
 import attnfuse as af
 from attnfuse.reference import naive_attention
 from attnfuse.runtime.dispatch import _alibi_slopes
+from attnfuse.rope_utils import build_rope_cache, apply_rope
 
 
 pytestmark = pytest.mark.gpu
@@ -97,5 +98,27 @@ def test_additive_bias():
     scores = scores + bias.float()
     probs  = torch.softmax(scores, dim=-1).to(Q.dtype)
     want   = torch.einsum("bhmn,bhnd->bhmd", probs, V)
+
+    assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)
+
+
+def test_fused_rope():
+    """Fused RoPE: kernel rotation must match pre-rotate-then-attend reference."""
+    @af.attention
+    def fn(Q, K, V):
+        s = af.rope(Q, K)
+        s = af.causal(s)
+        return af.softmax(s) @ V
+
+    B, H, N, D = 1, 4, 128, 64
+    Q, K, V = _inputs(B=B, H=H, N=N, D=D)
+    cos, sin = build_rope_cache(N, D, device="cuda", dtype=torch.float16)
+
+    got = fn(Q, K, V, cos=cos, sin=sin)
+
+    # Reference: apply RoPE in Python, then run naive causal attention
+    Q_rot = apply_rope(Q, cos, sin)
+    K_rot = apply_rope(K, cos, sin)
+    want = naive_attention(Q_rot, K_rot, V, causal=True)
 
     assert torch.allclose(got, want, atol=2e-2, rtol=2e-2)

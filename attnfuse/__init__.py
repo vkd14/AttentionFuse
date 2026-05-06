@@ -4,6 +4,7 @@ Public surface (re-exported from `attnfuse.dsl.api`):
 
     @attention                          decorator
     scaled_dot_product, additive_bias   score combinators
+    rope                                fused RoPE score combinator
     causal, sliding_window, full        mask combinators
     alibi                               positional-bias combinator
     softmax, relu_attention             normalisation combinators
@@ -26,6 +27,7 @@ from .dsl.api import (
     attention,
     scaled_dot_product,
     additive_bias,
+    rope,
     causal,
     sliding_window,
     full,
@@ -34,12 +36,13 @@ from .dsl.api import (
     relu_attention,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "attention",
     "scaled_dot_product",
     "additive_bias",
+    "rope",
     "causal",
     "sliding_window",
     "full",

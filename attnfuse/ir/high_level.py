@@ -88,7 +88,8 @@ class ScoreOp(Expr):
     kind: ScoreKind
     q: TensorSym
     k: TensorSym
-    scale: Optional[float] = None  # None → 1/sqrt(head_dim)
+    scale: Optional[float] = None
+    rope: bool = False   # True → fused RoPE applied to Q/K inside the Triton kernel  # None → 1/sqrt(head_dim)
 
 
 @dataclass
@@ -191,7 +192,7 @@ class Graph:
         parts.append(f"head_dim={self.q.head_dim}")
         for node, _ in self.walk():
             if isinstance(node, ScoreOp):
-                parts.append(f"score:{node.kind.value}:scale={node.scale}")
+                parts.append(f"score:{node.kind.value}:scale={node.scale}:rope={node.rope}")
             elif isinstance(node, MaskOp):
                 parts.append(f"mask:{node.kind.value}:w={node.window}")
             elif isinstance(node, BiasOp):
