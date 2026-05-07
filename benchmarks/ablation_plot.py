@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 
-def _heatmap(df_v: pd.DataFrame, variant: str, out_path: Path) -> None:
+def _heatmap(df_v: pd.DataFrame, variant: str, out_path: Path, title_suffix: str = "") -> None:
     # Use the best num_stages per (BLOCK_M, BLOCK_N, num_warps) triple
     best = (df_v[df_v["tflops"] != "oom"]
             .assign(tflops=lambda d: d["tflops"].astype(float))
@@ -41,7 +41,8 @@ def _heatmap(df_v: pd.DataFrame, variant: str, out_path: Path) -> None:
                         fontsize=8, color="black" if v < 80 else "white")
 
     plt.colorbar(im, ax=ax, label="TFLOPS")
-    ax.set_title(f"Tile ablation — {variant}  (N=2048, best num_stages)", fontsize=10)
+    title = f"Tile ablation — {variant}{title_suffix}  (N=2048, best num_stages)"
+    ax.set_title(title, fontsize=10)
     ax.set_xlabel("num_warps")
     ax.set_ylabel("(BLOCK_M, BLOCK_N)")
     fig.tight_layout()
@@ -58,8 +59,15 @@ def main() -> int:
     df = pd.read_csv(args.csv)
     out_dir = Path(args.csv).parent
 
-    for variant, grp in df.groupby("variant"):
-        _heatmap(grp, variant, out_dir / f"ablation_{variant}.png")
+    if "dtype" in df.columns:
+        # Multi-dtype CSV: produce one heatmap per (variant, dtype) combination
+        for (variant, dtype), grp in df.groupby(["variant", "dtype"]):
+            suffix = f"  [{dtype}]"
+            fname  = f"ablation_{variant}_{dtype.replace('float', 'f')}.png"
+            _heatmap(grp, variant, out_dir / fname, title_suffix=suffix)
+    else:
+        for variant, grp in df.groupby("variant"):
+            _heatmap(grp, variant, out_dir / f"ablation_{variant}.png")
     return 0
 
 

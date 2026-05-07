@@ -92,9 +92,12 @@ def _build_sdpa(variant: str, num_heads: int) -> Callable:
     return run
 
 
-def _build_flash(variant: str, num_heads: int) -> Callable | None:
-    """The hand-written reference only handles dense + causal."""
+def _build_flash(variant: str, num_heads: int, dtype: torch.dtype = torch.float16) -> Callable | None:
+    """The hand-written reference only handles dense + causal in fp16/bf16."""
     if variant not in ("dense", "causal"):
+        return None
+    if dtype == torch.float32:
+        # Reference Triton flash kernel overflows SMEM for fp32 tile sizes.
         return None
     causal = variant == "causal"
     return lambda Q, K, V: flash_attention(Q, K, V, causal=causal)
@@ -206,7 +209,7 @@ def main() -> int:
                 runners = {
                     "naive":      _build_naive(variant, H),
                     "sdpa":       _build_sdpa(variant, H),
-                    "flash_ref":  _build_flash(variant, H),
+                    "flash_ref":  _build_flash(variant, H, dtype),
                     "attnfuse":   _build_attnfuse(variant, H),
                 }
                 for name, fn in runners.items():
@@ -214,7 +217,9 @@ def main() -> int:
                         continue
                     try:
                         lat, mem = _bench(fn, Q, K, V, args.warmup, args.iters)
-                    except torch.cuda.OutOfMemoryError:
+                    except (torch.cuda.OutOfMemoryError, Exception) as exc:
+                        if not isinstance(exc, torch.cuda.OutOfMemoryError):
+                            print(f"    {name} error: {exc}")
                         torch.cuda.empty_cache()
                         lat, mem = float("nan"), float("nan")
                     tfl = _tflops(lat, B, H, N, D) if lat == lat else float("nan")
