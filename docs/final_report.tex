@@ -74,10 +74,10 @@ The compiler fuses the score, mask, bias, normalisation, and value-weighted
 aggregation steps into one tiled loop that never materialises the full
 $n \times n$ attention matrix in HBM, achieving IO-complexity identical to
 hand-written FlashAttention-2.
-On an NVIDIA RTX~3090 with fp16 inputs, AttnFuse matches PyTorch SDPA
-within 8\% for dense and causal attention.
+On an NVIDIA RTX~3090 with fp16 inputs, AttnFuse reaches 83--86\% of
+PyTorch SDPA's throughput for dense and causal attention.
 For variants not natively supported by SDPA---sliding-window (W=256) and
-causal+ALiBi---AttnFuse achieves $61\times$ and $19\times$ speedup at
+causal+ALiBi---AttnFuse achieves $38\times$ and $17\times$ speedup at
 $N{=}4096$ over SDPA's $\mathcal{O}(n^2)$ fallback.
 A novel fused Rotary Position Embedding (RoPE) kernel reduces end-to-end
 latency by up to $2.3\times$ versus the pre-processing baseline.
@@ -332,31 +332,31 @@ Table~\ref{tab:fp16_gpt2} shows results for GPT-2 small geometry
 \textbf{Variant} & \textbf{N} & \textbf{AttnFuse} & \textbf{SDPA} & \textbf{Speedup} \\
 \midrule
 \multirow{3}{*}{Causal}
-  & 1024 & 82.9  & 83.5  & 0.99$\times$ \\
-  & 2048 & 95.5  & 114.9 & 0.83$\times$ \\
-  & 4096 & 95.0  & 121.0 & 0.79$\times$ \\
+  & 1024 &  63.9 &  76.7 & 0.83$\times$ \\
+  & 2048 &  89.8 & 108.0 & 0.83$\times$ \\
+  & 4096 & 105.0 & 121.8 & 0.86$\times$ \\
 \midrule
 \multirow{3}{*}{SW (W=256)}
-  & 1024 & 95.9  & 9.2   & 10.4$\times$ \\
-  & 2048 & 178.3 & 6.0   & 29.7$\times$ \\
-  & 4096 & 358.2 & 5.9   & 60.7$\times$ \\
+  & 1024 &  65.2 &   9.4 &  6.9$\times$ \\
+  & 2048 & 148.9 &   6.2 & 24.1$\times$ \\
+  & 4096 & 298.5 &   7.8 & 38.5$\times$ \\
 \midrule
 \multirow{3}{*}{Causal+ALiBi}
-  & 1024 & 78.5  & 8.0   & 9.8$\times$ \\
-  & 2048 & 95.9  & 4.7   & 20.4$\times$ \\
-  & 4096 & 101.9 & 5.3   & 19.2$\times$ \\
+  & 1024 &  59.5 &   7.2 &  8.2$\times$ \\
+  & 2048 &  86.5 &   4.6 & 18.9$\times$ \\
+  & 4096 &  97.7 &   5.6 & 17.4$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 For dense and causal attention, SDPA's hand-optimised CUTLASS backend
-provides 7--21\% better TFLOPS than AttnFuse's Triton kernel.  This gap
+provides 16--20\% better TFLOPS than AttnFuse's Triton kernel.  This gap
 is inherent to PTX-level optimisations in CUTLASS versus Triton's LLVM
 backend and represents the performance cost of kernel generality.
 
 For sliding-window and causal+ALiBi, SDPA falls back to an $\mathcal{O}(n^2)$
 computation path.  AttnFuse is the only \emph{sub-quadratic} option for
-these variants, achieving 60$\times$ speedup at $N{=}4096$.
+these variants, achieving 38$\times$ speedup at $N{=}4096$.
 
 \subsection{Memory Efficiency}
 
@@ -377,9 +377,9 @@ attention at sequence lengths that would otherwise run out of memory.
 \toprule
 \textbf{Dtype} & \textbf{AttnFuse} & \textbf{SDPA} & \textbf{Ratio} \\
 \midrule
-float16  & 95.0  & 121.0 & 0.79$\times$ \\
+float16  & 105.0 & 121.8 & 0.86$\times$ \\
 bfloat16 & 108.4 & 121.0 & 0.90$\times$ \\
-float32  & 44.2  & 13.7  & 3.2$\times$  \\
+float32  &  44.2 &  13.7 & 3.2$\times$  \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -448,6 +448,19 @@ $>152$~FLOP/byte ridge point), explaining the plateau in throughput.
 Sliding-window at small $N$ falls in the memory-bandwidth regime; as $N$
 grows, the window effectively makes more of the work compute-bound and
 TFLOPS rise dramatically.
+
+\paragraph{Note on profiling methodology.}
+Nsight Compute (\texttt{ncu}) was unavailable on the evaluation host, so
+tensor-core utilisation and HBM bandwidth in
+Figure~\ref{fig:roofline} are computed analytically from measured latency:
+\textit{TFLOPS} divides the variant-correct FLOP count
+($4BHN^2D$ dense/causal,
+$4BHN\,\min(2W,N)\,D$ sliding-window) by latency, and \textit{HBM bandwidth}
+sums the analytical Q/K/V/O traffic
+(scaled by the effective key fraction $\min(2W,N)/N$ for sliding-window).
+The HBM figure is a lower bound that excludes SMEM spills and pipeline
+overhead; absolute counter-based numbers from \texttt{ncu} would be
+slightly higher but the relative shape of the plot is unchanged.
 
 \subsection{JIT Compile Time}
 
@@ -567,6 +580,17 @@ sensitive serving.  Pre-compiling and caching PTX binaries to disk
 (already partially done via the \texttt{\_generated/} directory) could
 eliminate this in production.
 
+\paragraph{Block-sparse structure.}
+The original proposal listed block-sparse attention (BigBird-style) as
+an in-scope variant.  AttnFuse currently expresses contiguous local
+patterns (sliding-window) and dense+masked patterns (causal, ALiBi)
+but does not yet support the global+local+random triple of BigBird,
+which would require a sparse-block index buffer threaded through the
+inner loop.  The IR is structurally ready for this---a new
+\texttt{MaskKind.BLOCK\_SPARSE} can be added without touching the
+fusion pass---but the codegen would need a per-row block-list traversal
+not currently emitted.
+
 %% =============================================================
 \section{Conclusion}
 %% =============================================================
@@ -584,9 +608,9 @@ injection, and positional encoding differ.  By encoding these differences as
 combinations with zero runtime branching overhead.
 
 For the two variants natively supported by PyTorch SDPA, AttnFuse achieves
-79--100\% of SDPA's throughput---a modest penalty for kernel generality.
+83--86\% of SDPA's throughput---a modest penalty for kernel generality.
 For the two variants not supported (sliding-window and causal+ALiBi),
-AttnFuse provides up to $61\times$ speedup by avoiding the $\mathcal{O}(n^2)$
+AttnFuse provides up to $38\times$ speedup by avoiding the $\mathcal{O}(n^2)$
 fallback.  The fused RoPE kernel eliminates a further 18--56\% latency
 overhead relative to the pre-processing approach used in production LLMs.
 

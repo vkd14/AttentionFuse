@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attnfuse"
-version = "0.1.0"
+version = "1.0.0"
 description = "An embedded Python DSL for attention mechanisms that compiles to fused Triton GPU kernels."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-authors = [{ name = "Varun D." }]
+authors = [{ name = "Varun Kumar Dasoju" }]
 keywords = ["attention", "transformer", "triton", "gpu", "dsl", "compiler"]
 classifiers = [
     "Programming Language :: Python :: 3",

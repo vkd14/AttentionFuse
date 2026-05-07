@@ -51,10 +51,10 @@ while supporting arbitrary mask/bias/norm compositions.
 
 | Variant | AttnFuse | SDPA | Speedup |
 |---|---|---|---|
-| Dense | 65 TFLOPS | 71 TFLOPS | 0.92× |
-| Causal | 95 TFLOPS | 121 TFLOPS | 0.79× |
-| **Sliding-window W=256** | **358 TFLOPS** | 5.9 TFLOPS | **61×** |
-| **Causal + ALiBi** | **102 TFLOPS** | 5.3 TFLOPS | **19×** |
+| Dense | 59 TFLOPS | 70 TFLOPS | 0.85× |
+| Causal | 105 TFLOPS | 122 TFLOPS | 0.86× |
+| **Sliding-window W=256** | **298 TFLOPS** | 7.8 TFLOPS | **38×** |
+| **Causal + ALiBi** | **98 TFLOPS** | 5.6 TFLOPS | **17×** |
 
 SDPA falls back to O(n²) for sliding-window and ALiBi; AttnFuse stays
 sub-quadratic for all variants.
@@ -177,7 +177,7 @@ python -m benchmarks.jit_compile_bench --output results/jit_compile.csv
 | Two-level IR (Graph → TiledKernel) | High-level semantics separate from tile-loop implementation |
 | Single parameterised kernel | `tl.constexpr` specialisation: zero runtime branching |
 | LaunchBundle cache | Eliminates ~7 µs per-call Python overhead |
-| Triton vs CUDA | Portability + rapid iteration; 8% TFLOPS gap vs SDPA for supported variants |
+| Triton vs CUDA | Portability + rapid iteration; 14--17% TFLOPS gap vs SDPA for supported variants |
 | Online softmax (Milakov & Gimelshein) | O(1) extra memory; numerically identical to standard softmax |
 
 ---
