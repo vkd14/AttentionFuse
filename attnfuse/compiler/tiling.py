@@ -39,10 +39,13 @@ _AMPERE_TABLE_F16: dict[int, TileConfig] = {
 # latency improvement at N=4096 with these configs, taking AttnFuse
 # from 86% of flex_attention to >100% on sliding-window.
 _AMPERE_TABLE_F16_SPARSE: dict[int, TileConfig] = {
-    32:  TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=3),
-    64:  TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=3),
-    128: TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=2),
-    256: TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=2),
+    32:  TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=3),
+    64:  TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=3),
+    # HEAD_DIM=128 wants BIGGER BLOCK_M to amortise the cost of the wider
+    # Q register footprint. Discovered via benchmarks/gqa_config_sweep.py
+    # on Llama-3-8B geometry; 16-19% faster than BM=64.
+    128: TileConfig(BLOCK_M=128, BLOCK_N=32, num_warps=4, num_stages=2),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
 }
 
 # RoPE adds cos/sin loads for both Q and K, increasing SMEM pressure.
