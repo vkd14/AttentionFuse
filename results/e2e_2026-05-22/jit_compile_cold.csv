@@ -1,0 +1,6 @@
+variant,first_call_ms,cached_call_ms,compile_overhead_x
+dense,1824.6,0.144,12637x
+causal,378.0,0.098,3866x
+sliding_w256,807.4,0.096,8388x
+causal_alibi,396.4,0.096,4118x
+causal_rope,984.1,0.158,6220x

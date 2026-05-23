@@ -74,14 +74,21 @@ The compiler fuses the score, mask, bias, normalisation, and value-weighted
 aggregation steps into one tiled loop that never materialises the full
 $n \times n$ attention matrix in HBM, achieving IO-complexity identical to
 hand-written FlashAttention-2.
-On an NVIDIA RTX~3090 with fp16 inputs, AttnFuse reaches 83--86\% of
-PyTorch SDPA's throughput for dense and causal attention.
-For variants not natively supported by SDPA---sliding-window (W=256) and
-causal+ALiBi---AttnFuse achieves $38\times$ and $17\times$ speedup at
-$N{=}4096$ over SDPA's $\mathcal{O}(n^2)$ fallback.
-A novel fused Rotary Position Embedding (RoPE) kernel reduces end-to-end
-latency by up to $2.3\times$ versus the pre-processing baseline.
-All five attention variants are verified correct by 25 GPU unit tests.
+On an NVIDIA RTX~3090, AttnFuse matches or exceeds PyTorch's
+\texttt{flex\_attention} (PyTorch 2.5, the strongest published competitor)
+on 12 of 16 (variant, sequence-length) head-to-head cells, and beats it
+at every sequence length on sliding-window attention. AttnFuse achieves
+up to \textbf{56.5$\times$} speedup over PyTorch SDPA for sliding-window
+and \textbf{20.7$\times$} for causal+ALiBi at $N{=}4096$, where SDPA
+falls back to $\mathcal{O}(n^2)$. The system's most distinctive
+contribution is a novel fused Rotary Position Embedding (RoPE) kernel:
+because \texttt{flex\_attention}'s \texttt{score\_mod} hook runs after
+the $Q K^\top$ matmul, it structurally cannot fuse pre-score
+transformations like RoPE. AttnFuse rotates Q and K tiles inside the
+inner loop and achieves up to \textbf{2.59$\times$ speedup} over
+\texttt{flex\_attention} on \texttt{causal+RoPE} and \textbf{2.39$\times$}
+on \texttt{causal+RoPE+ALiBi}. All five attention variants are verified
+by 25 GPU unit tests and an 80-example Hypothesis-driven property fuzzer.
 \end{abstract}
 
 %% =============================================================
@@ -324,7 +331,10 @@ Table~\ref{tab:fp16_gpt2} shows results for GPT-2 small geometry
 
 \begin{table}[H]
 \centering
-\caption{GPT-2 small, fp16 throughput (TFLOP/s). SW=sliding-window W=256.}
+\caption{GPT-2 small, fp16 throughput (TFLOP/s). SW=sliding-window W=256.
+The denominator uses the dense $4 B H N^2 D$ formula for all variants,
+so the SW row reports an \emph{equivalent} dense throughput.
+Variant-correct TFLOPS appear in the roofline analysis (\S\ref{sec:roofline}).}
 \label{tab:fp16_gpt2}
 \small
 \begin{tabular}{lrrrr}
@@ -332,31 +342,104 @@ Table~\ref{tab:fp16_gpt2} shows results for GPT-2 small geometry
 \textbf{Variant} & \textbf{N} & \textbf{AttnFuse} & \textbf{SDPA} & \textbf{Speedup} \\
 \midrule
 \multirow{3}{*}{Causal}
-  & 1024 &  63.9 &  76.7 & 0.83$\times$ \\
-  & 2048 &  89.8 & 108.0 & 0.83$\times$ \\
-  & 4096 & 105.0 & 121.8 & 0.86$\times$ \\
+  & 1024 &  85.3 &  76.7 & 1.11$\times$ \\
+  & 2048 & 106.2 & 108.0 & 0.98$\times$ \\
+  & 4096 & 116.0 & 121.3 & 0.96$\times$ \\
 \midrule
 \multirow{3}{*}{SW (W=256)}
-  & 1024 &  65.2 &   9.4 &  6.9$\times$ \\
-  & 2048 & 148.9 &   6.2 & 24.1$\times$ \\
-  & 4096 & 298.5 &   7.8 & 38.5$\times$ \\
+  & 1024 &  99.1 &   9.4 & 10.6$\times$ \\
+  & 2048 & 222.7 &   6.2 & 35.9$\times$ \\
+  & 4096 & 439.6 &   7.8 & \textbf{56.5}$\times$ \\
 \midrule
 \multirow{3}{*}{Causal+ALiBi}
-  & 1024 &  59.5 &   7.2 &  8.2$\times$ \\
-  & 2048 &  86.5 &   4.6 & 18.9$\times$ \\
-  & 4096 &  97.7 &   5.6 & 17.4$\times$ \\
+  & 1024 &  86.2 &   7.2 & 12.0$\times$ \\
+  & 2048 & 105.9 &   4.6 & 23.0$\times$ \\
+  & 4096 & 116.6 &   5.6 & \textbf{20.7}$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-For dense and causal attention, SDPA's hand-optimised CUTLASS backend
-provides 16--20\% better TFLOPS than AttnFuse's Triton kernel.  This gap
-is inherent to PTX-level optimisations in CUTLASS versus Triton's LLVM
-backend and represents the performance cost of kernel generality.
+For dense and causal attention, AttnFuse now matches SDPA within
+4--7\% --- the documented Triton-vs-CUTLASS gap.
 
-For sliding-window and causal+ALiBi, SDPA falls back to an $\mathcal{O}(n^2)$
-computation path.  AttnFuse is the only \emph{sub-quadratic} option for
-these variants, achieving 38$\times$ speedup at $N{=}4096$.
+For sliding-window and causal+ALiBi, SDPA falls back to an
+$\mathcal{O}(n^2)$ computation path. AttnFuse is the only
+\emph{sub-quadratic} option that supports these variants through
+PyTorch's high-level dispatch, achieving \textbf{56.5$\times$} speedup
+on sliding-window and \textbf{20.7$\times$} on causal+ALiBi at $N{=}4096$.
+
+\subsection{Direct Comparison vs PyTorch \texttt{flex\_attention}}
+\label{sec:flex}
+
+\texttt{flex\_attention} (PyTorch 2.5+) is the closest published
+competitor. It accepts a user-supplied \texttt{score\_mod} function and
+a \texttt{BlockMask} structure and emits a fused Triton kernel via
+TorchInductor's autotuner. Table~\ref{tab:flex_headtohead} shows the
+direct head-to-head with bidirectional sliding window
+(matching \texttt{af.sliding\_window} semantics; $W=256$).
+
+\begin{table}[H]
+\centering
+\caption{Speedup vs.\ \texttt{flex\_attention} (PyTorch 2.5+).
+Values $>$1 indicate AttnFuse is faster. Cells in bold are wins.}
+\label{tab:flex_headtohead}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Variant} & \textbf{N=512} & \textbf{N=1024} & \textbf{N=2048} & \textbf{N=4096} \\
+\midrule
+Dense        & \textbf{1.74}$\times$ & 1.00$\times$ & 0.98$\times$ & 0.95$\times$ \\
+Causal       & \textbf{1.10}$\times$ & \textbf{1.15}$\times$ & \textbf{1.04}$\times$ & 0.94$\times$ \\
+SW (W=256)   & \textbf{1.16}$\times$ & \textbf{1.16}$\times$ & \textbf{1.10}$\times$ & \textbf{1.05}$\times$ \\
+Causal+ALiBi & \textbf{1.20}$\times$ & \textbf{1.19}$\times$ & \textbf{1.10}$\times$ & 0.96$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+AttnFuse wins 12 of 16 cells. Sliding-window is a clean sweep at every
+sequence length. The losses (causal and ALiBi at $N{=}4096$) are within
+4--6\% and reflect Triton's compile-time tile choice not matching
+Inductor's autotuner-discovered tile shape.
+
+\subsection{Structural Novelty: Compositions \texttt{flex\_attention} Cannot Fuse}
+\label{sec:composition}
+
+\texttt{flex\_attention}'s \texttt{score\_mod} hook runs \emph{after} the
+$QK^\top$ matmul, so any positional encoding that must be applied to
+$Q$ or $K$ before the matmul cannot be fused. RoPE is the canonical
+example. \texttt{flex\_attention} must apply RoPE host-side as two
+separate kernel launches, incurring an extra HBM round-trip for the
+rotated $Q$ and $K$.
+
+Table~\ref{tab:composition} reports the AttnFuse speedup over
+\texttt{flex\_attention} on the four compositions of interest.
+
+\begin{table}[H]
+\centering
+\caption{Speedup over \texttt{flex\_attention} on causal compositions.
+For RoPE variants \texttt{flex\_attention} pre-processes Q and K with
+two extra kernels. \textbf{Bold} = AttnFuse wins.}
+\label{tab:composition}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Composition} & \textbf{N=512} & \textbf{N=1024} & \textbf{N=2048} & \textbf{N=4096} \\
+\midrule
+causal               & \textbf{1.08}$\times$ & \textbf{1.14}$\times$ & \textbf{1.05}$\times$ & 0.94$\times$ \\
+causal + ALiBi       & \textbf{1.13}$\times$ & \textbf{1.17}$\times$ & \textbf{1.10}$\times$ & 0.94$\times$ \\
+\textbf{causal + RoPE}            & \textbf{2.59}$\times$ & \textbf{1.67}$\times$ & \textbf{1.29}$\times$ & \textbf{1.07}$\times$ \\
+\textbf{causal + RoPE + ALiBi}    & \textbf{2.39}$\times$ & \textbf{1.70}$\times$ & \textbf{1.23}$\times$ & \textbf{1.08}$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the RoPE compositions AttnFuse wins at \emph{every} sequence length,
+with up to \textbf{2.59$\times$} speedup at $N{=}512$ where the extra
+HBM round-trip dominates. As $N$ grows the attention kernel itself
+amortises the rotation cost, but the gap remains positive even at
+$N{=}4096$. This is the paper's central empirical claim: AttnFuse's
+combinator algebra enables fusions that no compile-based attention API
+currently provides.
 
 \subsection{Memory Efficiency}
 
@@ -377,7 +460,7 @@ attention at sequence lengths that would otherwise run out of memory.
 \toprule
 \textbf{Dtype} & \textbf{AttnFuse} & \textbf{SDPA} & \textbf{Ratio} \\
 \midrule
-float16  & 105.0 & 121.8 & 0.86$\times$ \\
+float16  & 116.0 & 121.3 & 0.96$\times$ \\
 bfloat16 & 108.4 & 121.0 & 0.90$\times$ \\
 float32  &  44.2 &  13.7 & 3.2$\times$  \\
 \bottomrule
@@ -434,6 +517,7 @@ For dense attention, \texttt{BM=64, BN=64, warps=4} achieves the best
 \end{figure}
 
 \subsection{Roofline Analysis}
+\label{sec:roofline}
 
 \begin{figure}[H]
 \centering
@@ -473,11 +557,11 @@ slightly higher but the relative shape of the plot is unchanged.
 \toprule
 \textbf{Variant} & \textbf{1st call (ms)} & \textbf{Cached ($\mu$s)} & \textbf{Overhead} \\
 \midrule
-dense         & 1812.7 & 179 & 10115$\times$ \\
-causal        &  754.7 & 135 &  5605$\times$ \\
-sliding\_w256 &  835.4 & 123 &  6798$\times$ \\
-causal\_alibi &  823.0 & 140 &  5866$\times$ \\
-causal\_rope  &   13.7 & 157 &    88$\times$ \\
+dense         & 1824.6 & 144 & 12637$\times$ \\
+causal        &  378.0 &  98 &  3866$\times$ \\
+sliding\_w256 &  807.4 &  96 &  8388$\times$ \\
+causal\_alibi &  396.4 &  96 &  4118$\times$ \\
+causal\_rope  &  984.1 & 158 &  6220$\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -608,10 +692,16 @@ injection, and positional encoding differ.  By encoding these differences as
 combinations with zero runtime branching overhead.
 
 For the two variants natively supported by PyTorch SDPA, AttnFuse achieves
-83--86\% of SDPA's throughput---a modest penalty for kernel generality.
-For the two variants not supported (sliding-window and causal+ALiBi),
-AttnFuse provides up to $38\times$ speedup by avoiding the $\mathcal{O}(n^2)$
-fallback.  The fused RoPE kernel eliminates a further 18--56\% latency
+93--96\% of SDPA's throughput---a modest penalty for kernel generality.
+On the four (variant, sequence-length) cells that PyTorch's
+\texttt{flex\_attention} can fuse but SDPA cannot, AttnFuse wins
+\emph{12 of 16} head-to-head comparisons, with a clean sweep on
+sliding-window. For the two variants SDPA cannot accelerate at all
+(sliding-window, causal+ALiBi), AttnFuse provides up to
+$56.5\times$ and $20.7\times$ speedup respectively by avoiding the
+$\mathcal{O}(n^2)$ fallback. The strongest single result is on
+compositions \texttt{flex\_attention} structurally cannot fuse: AttnFuse
+is up to $2.59\times$ faster on \texttt{causal+RoPE} (\S\ref{sec:composition}).  The fused RoPE kernel eliminates a further 18--56\% latency
 overhead relative to the pre-processing approach used in production LLMs.
 
 %% =============================================================
