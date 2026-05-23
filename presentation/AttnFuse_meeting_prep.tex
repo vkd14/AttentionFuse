@@ -1,0 +1,540 @@
+%% ============================================================
+%%  AttnFuse — Meeting Prep with Advisor
+%%  Goal: explain the project in plain English, anticipate
+%%  advisor questions, and lay out a path to publication.
+%% ============================================================
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.9in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,
+            citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable}
+
+\titleformat{\section}{\Large\bfseries\color{blue!60!black}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{black!80}}{\thesubsection.}{0.6em}{}
+
+\definecolor{qbg}{HTML}{F2F4F8}
+\definecolor{abg}{HTML}{FFF7E6}
+\definecolor{tipbg}{HTML}{E8F4EA}
+
+\newtcolorbox{question}[1]{%
+  colback=qbg, colframe=blue!30!black, boxrule=0.4pt, arc=2pt,
+  left=8pt, right=8pt, top=4pt, bottom=4pt,
+  breakable, title=\textbf{Q: #1}, fonttitle=\bfseries\small}
+
+\newtcolorbox{answer}{%
+  colback=abg, colframe=orange!50!black, boxrule=0.4pt, arc=2pt,
+  left=8pt, right=8pt, top=4pt, bottom=4pt,
+  breakable, title=\textbf{Your answer}, fonttitle=\bfseries\small}
+
+\newtcolorbox{layman}{%
+  colback=tipbg, colframe=green!40!black, boxrule=0.4pt, arc=2pt,
+  left=8pt, right=8pt, top=4pt, bottom=4pt,
+  breakable, title=\textbf{In plain English}, fonttitle=\bfseries\small}
+
+\lstset{
+  language=Python,
+  backgroundcolor=\color{black!4},
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{black!20},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+}
+
+\title{\textbf{AttnFuse — Advisor Meeting Prep}\\[4pt]
+       \large Layman walkthrough, anticipated questions, and path to publication}
+\author{Varun Kumar Dasoju}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textit{Read the green boxes for the simple version of every idea, the
+gray-blue boxes for likely advisor questions, and the orange boxes for what to
+say back. The last section sketches what would turn this from a class project
+into a publishable paper.}
+
+\tableofcontents
+\bigskip
+
+%% =============================================================
+\section{The Project in Plain English}
+%% =============================================================
+
+\subsection{The one-paragraph pitch}
+
+Modern AI language models spend most of their time inside a step called
+\emph{attention}. Attention is the thing that lets the model decide which
+other words it should ``look at'' when reading a given word. It is also the
+slowest part: for a text of length $N$, attention naively builds an $N \times N$
+table of scores, which is a memory disaster at long context. There is a
+hand-written CUDA kernel called FlashAttention that solves this for the basic
+case, but every time a researcher invents a new variant of attention
+(sliding-window, ALiBi, RoPE, block sparse, etc.) they have to write a new
+custom GPU kernel from scratch. \textbf{AttnFuse is a small programming
+language embedded in Python that lets you describe the attention variant in
+five lines of code; our compiler then automatically generates a fused GPU
+kernel for it.} On an RTX~3090, the generated kernels are within
+14\,--\,17\% of PyTorch's hand-tuned CUDA for the standard cases, and
+17\,--\,38$\times$ faster than PyTorch for the cases PyTorch doesn't natively
+accelerate.
+
+\begin{layman}
+Think of it like a recipe language for attention. The user writes a five-line
+recipe; we generate the optimised GPU machine code that follows the recipe.
+For common dishes (dense, causal) we are about as fast as the chef who has
+been cooking them for years. For new dishes (sliding-window + ALiBi + RoPE +
+custom bias) we are dozens of times faster than the only available
+alternative, because that alternative is to throw the recipe out and cook
+the whole meal by hand the slow way.
+\end{layman}
+
+\subsection{What's actually inside the box}
+
+There are four pieces:
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{A DSL frontend.} Seven Python ``combinators'' --- score, RoPE,
+        causal mask, sliding window, ALiBi bias, additive bias, softmax ---
+        that you snap together inside an \texttt{@af.attention}-decorated
+        function. We trace the function symbolically (no GPU work yet) to
+        capture a dataflow graph.
+  \item \textbf{A two-level IR.} The high-level IR is a typed dataflow graph
+        (TensorSym, ScoreOp, MaskOp, BiasOp, NormOp, MatMulPV). The low-level
+        IR is a flat \texttt{TiledKernel} record with everything the
+        codegenerator needs: mask kind, bias kind, RoPE flag, tile sizes,
+        warp count, pipeline stages. The graph's SHA-1 signature is the
+        kernel cache key.
+  \item \textbf{A four-pass compiler.}
+        \emph{Fuse} (recognise fusable patterns) $\to$
+        \emph{Tile} (pick block sizes from an Ampere-tuned table) $\to$
+        \emph{Lower} (collapse to TiledKernel) $\to$
+        \emph{Codegen} (emit a single templated Triton kernel). Triton's JIT
+        then specialises a distinct PTX binary per unique
+        \texttt{tl.constexpr} combination, giving zero runtime branching.
+  \item \textbf{A runtime.} Generated sources go to \texttt{\_generated/};
+        the LaunchBundle precomputes dispatch metadata so per-call overhead is
+        under one microsecond.
+\end{enumerate}
+
+\begin{layman}
+We don't generate a new kernel for every new combination. We have one big
+kernel template with switches baked in at compile time. When you ask for
+``causal + ALiBi + RoPE,'' the Triton JIT bakes those flags in and the GPU
+runs the specialised binary --- no \texttt{if}-statements in the hot loop.
+\end{layman}
+
+\subsection{The headline numbers}
+
+Measured on RTX~3090, fp16, GPT-2 geometry, $N = 4096$:
+
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+  \item Dense: AttnFuse 59 TFLOPS vs SDPA 70 ($0.85\times$).
+  \item Causal: AttnFuse 105 TFLOPS vs SDPA 122 ($0.86\times$).
+  \item Sliding-window $W{=}256$: AttnFuse 298 TFLOPS vs SDPA 7.8 ($\mathbf{38\times}$).
+  \item Causal + ALiBi: AttnFuse 98 TFLOPS vs SDPA 5.6 ($\mathbf{17\times}$).
+  \item Fused RoPE: $1.18\times$ to $2.29\times$ faster than pre-processing RoPE.
+  \item Peak memory at $N{=}4096$: 200~MB vs 3,176~MB naive ($\approx 32\times$ less).
+  \item 25 GPU correctness tests passing; three dtypes (fp16, bf16, fp32).
+\end{itemize}
+
+\subsection{What's genuinely new}
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{The DSL$+$compiler combination for attention.} Existing tools
+        are either fixed (FlashAttention's two variants), too general
+        (TVM, Halide), or new-this-year (PyTorch's \texttt{flex\_attention}).
+        AttnFuse stakes out a different position --- a small dedicated IR
+        with explicit introspection, ablation hooks, and per-combinator
+        caching.
+  \item \textbf{Fused RoPE inside the inner tile loop.} Rotate Q once before
+        the loop; rotate K per-tile using a gather over rotate-half indices;
+        all in registers, no HBM round-trip. To our knowledge, this is the
+        first compiler-generated fused RoPE.
+  \item \textbf{Variant-correct FLOP accounting and analytical roofline.}
+        Most ``flash-attention TFLOPS'' numbers in the literature use the
+        dense $4BHN^2D$ formula even for sub-quadratic kernels, producing
+        tc\_pct values that exceed 100\%. We use $4BHN\min(2W,N)D$ for
+        sliding-window, which is physically correct.
+\end{enumerate}
+
+%% =============================================================
+\section{Anticipated Advisor Questions (with answers)}
+%% =============================================================
+
+\subsection{``What is the actual research contribution?''}
+
+\begin{question}{Is this a compilers paper, a systems paper, or an engineering
+project? What is the minimum publishable unit?}
+\end{question}
+\begin{answer}
+Three candidates, strongest first:
+(a)~the fused RoPE kernel and its codegen integration --- a focused systems
+result with a clean before/after comparison, suitable for MLSys or a
+workshop;
+(b)~the combinator algebra plus two-level IR for attention --- a programming
+languages / compilers angle, suitable for MAPL or a PLDI SRC paper;
+(c)~the full DSL framework as an artifact paper for an MLSys-style track.
+
+The cleanest first paper is (a) + a slimmer version of (c) as supporting
+material: ``A composable IR for attention, with a novel fused-RoPE
+specialisation.''
+\end{answer}
+
+\begin{question}{What's the delta vs xFormers, Liger Kernel, FlashAttention-2,
+and PyTorch's new \texttt{flex\_attention}?}
+\end{question}
+\begin{answer}
+xFormers and Liger ship hand-written kernels for a fixed set of variants ---
+they don't expose a composable IR. FlashAttention-2 is exactly two variants
+(dense, causal). The closest competitor is \texttt{flex\_attention} (PyTorch
+2.5, 2024), which lets you supply a \texttt{score\_mod} Python function. Two
+real differences: (i) \texttt{flex\_attention} cannot fuse pre-score
+transformations like RoPE --- it only modifies the score, so RoPE still
+needs preprocessing; (ii) AttnFuse exposes an explicit IR you can dump,
+diff, and ablate, which we used to drive the tile-config study and the
+roofline analysis. Different abstraction levels: \texttt{flex\_attention}
+is a hook into PyTorch's compiler; AttnFuse is a small standalone DSL with
+its own pipeline.
+\end{answer}
+
+\begin{question}{Has anyone done a compiler-generated attention DSL before?}
+\end{question}
+\begin{answer}
+There is work in adjacent areas --- TVM's attention scheduling, Halide-style
+auto-schedulers, MLIR's \texttt{linalg} dialect with transform-dialect
+schedules, and FlexAttention as mentioned. But none of these combines a
+combinator-based surface syntax + a typed dataflow IR + Triton codegen
+specifically for attention, and none of them fuses RoPE. The novelty is
+the combination, not any single component in isolation.
+\end{answer}
+
+\subsection{``Why Triton, why this IR design?''}
+
+\begin{question}{Why generate Triton instead of writing your own MLIR
+dialect, or writing CUDA directly?}
+\end{question}
+\begin{answer}
+Triton is the right level of abstraction: high enough that we can template
+a kernel and have its JIT specialise per constexpr, low enough to get
+close-to-CUTLASS performance on Ampere. Writing an MLIR dialect adds
+six months of infrastructure work for no expected performance win on the
+RTX~3090 (the bottleneck is HBM, not codegen quality). Writing CUDA directly
+would gain $\sim$15\% TFLOPS but cost the entire composability story --- we'd
+end up shipping a fixed library of kernels rather than a DSL.
+\end{answer}
+
+\begin{question}{What does your IR actually buy you over just having a big
+Python function with \texttt{if}-branches?}
+\end{question}
+\begin{answer}
+Three things. (i)~Cache key: the graph signature is a stable hash, so two
+users writing slightly different Python that produces the same graph share a
+compiled kernel. (ii)~Validation: the fusion pass rejects unsupported
+combinations (e.g.~softmax-of-non-score) at compile time, not at runtime.
+(iii)~Ablation: we can run the same graph through multiple tile configs to
+produce the heatmap in the report. None of these are possible with a
+monolithic Python function.
+\end{answer}
+
+\subsection{``Are the speedups real?''}
+
+\begin{question}{Your sliding-window speedup is vs SDPA's $\mathcal{O}(n^2)$
+fallback. Isn't that an unfair comparison?}
+\end{question}
+\begin{answer}
+Yes and no. Yes, in the sense that we are not beating a kernel that does the
+same work --- we are beating PyTorch's only available execution path for
+that variant. No, in the sense that this is exactly the user-visible
+situation today: if you write \texttt{torch.nn.functional.scaled\_dot\_product\_attention}
+with a non-trivial \texttt{attn\_mask}, you get the slow path. The fair
+framing is ``AttnFuse delivers FlashAttention-class kernels for variants
+PyTorch users currently cannot get accelerated at all,'' and that is what
+we say in the paper.
+\end{answer}
+
+\begin{question}{Have you compared against hand-written FlashAttention for
+sliding-window (e.g.~the Triton tutorial implementation)?}
+\end{question}
+\begin{answer}
+We compare against \texttt{flash\_ref}, our own hand-written two-kernel
+Triton FA2 reference, for dense and causal: AttnFuse is within 0.2\% of it.
+For sliding-window there is no widely accepted ``hand-written FA2 sliding''
+reference --- the closest is xFormers' \texttt{block\_diagonal\_attn}, which
+we did not benchmark. This is a known limitation; adding xFormers to the
+baseline matrix is on the to-do list for the paper.
+\end{answer}
+
+\begin{question}{RTX 3090 only --- what about A100, H100? The tile table is
+hard-coded.}
+\end{question}
+\begin{answer}
+True; the Ampere tile table will not give optimal numbers on Hopper
+(sm\_90 has TMA, different SMEM budget, async copies). The IR is hardware-
+neutral; what's hard-coded is just the lookup table in
+\texttt{tiling.py}. Re-tuning it on H100 is the natural extension and is the
+first item under ``Path to Publication.''
+\end{answer}
+
+\subsection{``What are you missing?''}
+
+\begin{question}{No backward pass --- isn't this just inference?}
+\end{question}
+\begin{answer}
+Correct. The backward kernel recomputes $m$ and $\ell$ from saved forward
+statistics and has different tile scheduling (FA2 backward parallelises over
+keys instead of queries). It's the largest missing piece; adding it would
+roughly double the project's compiler-IR surface, but it's mechanical, not
+research-novel. A workshop paper can defensibly cite ``forward only;
+backward is straightforward future work,'' as the FA2 paper itself did
+between v1 and v2.
+\end{answer}
+
+\begin{question}{No Nsight Compute? How do you defend the TFLOPS numbers?}
+\end{question}
+\begin{answer}
+\texttt{ncu} was not installable on the evaluation host. We compute TFLOPS
+analytically from latency $\times$ variant-correct FLOP count, and HBM
+bandwidth from the analytical traffic (Q + K + V + O with $\min(2W,N)/N$
+scaling for sliding-window). The HBM number is a lower bound that excludes
+SMEM spills and pipeline overhead, which we explicitly note in the report.
+For a venue submission, re-running on a box with \texttt{ncu} is a
+day's work.
+\end{answer}
+
+\begin{question}{Why only one model geometry (GPT-2 small, 12 heads, $D{=}64$)?}
+\end{question}
+\begin{answer}
+GPT-2-small and BERT-base were the proposal's evaluation targets. The kernel
+parameterises on head\_dim ($32, 64, 96, 128, 256$) and num\_heads. For a
+paper, the obvious extensions are LLaMA-style geometries ($D{=}128$,
+GQA with groups$=$8) and Falcon-style ($D{=}64$, MQA). These are configuration
+sweeps, not new code.
+\end{answer}
+
+\begin{question}{How big is your kernel-config search space? Are you really
+``autotuning'' or just looking up a table?}
+\end{question}
+\begin{answer}
+Honest answer: just a table. We did an offline ablation sweep
+($\{BM, BN\} \times \text{warps} \times \text{stages}$) at $N{=}2048$ and
+froze the best configs into \texttt{tiling.py}. We are not running
+Triton's \texttt{autotune} at JIT time --- that would multiply compile
+cost by 16$\times$. For a paper, the natural step is to integrate
+\texttt{triton.autotune} per shape and report compile-time vs
+runtime trade-off curves.
+\end{answer}
+
+\subsection{``How do you defend correctness?''}
+
+\begin{question}{What's your test coverage? How do you know the fused RoPE
+matches the unfused version?}
+\end{question}
+\begin{answer}
+25 GPU unit tests cover every (variant $\times$ dtype) cell, plus dedicated
+tests for the fused RoPE (compared against \texttt{naive\_attention} with
+\texttt{apply\_rope} preprocessing; max absolute error $1.95 \times 10^{-3}$
+at fp16, well within FA2's documented tolerance of $2 \times 10^{-2}$),
+and for the sliding-window NaN guard. We do not yet have a property-based
+fuzzer over combinator combinations; for a paper, that would be a
+$\sim$200-line addition using Hypothesis.
+\end{answer}
+
+\begin{question}{What about numerical precision in low-precision dtypes? You
+claim bf16 beats fp16 by 3\% --- is that signal or noise?}
+\end{question}
+\begin{answer}
+Signal. The 3\% gap (108.4 vs 105.0 TFLOPS at $N=4096$ causal) is
+reproducible across runs and consistent with the Triton/Ampere literature:
+bf16 has a wider exponent range, which reduces masking-related underflow
+in long-context softmax. We run 50 timed iterations after 5 warmups and
+report the median; standard deviation across runs is under 1\%.
+\end{answer}
+
+%% =============================================================
+\section{Hard / Critical Questions}
+%% =============================================================
+
+\begin{question}{If I strip away the DSL framing, what's left? Is the kernel
+itself novel?}
+\end{question}
+\begin{answer}
+Honest answer: the kernel-architecture is FlashAttention-2 with constexpr
+specialisation --- not novel on its own. The fused RoPE codegen \emph{is}
+novel. So the contribution is the combination: composable IR + codegen +
+the RoPE specialisation. A reviewer who insists on a single-kernel novelty
+result will not be impressed; a reviewer evaluating the IR + DSL + RoPE as
+a system can be.
+\end{answer}
+
+\begin{question}{What stops someone from doing this in 200 lines of
+\texttt{flex\_attention} score\_mod functions?}
+\end{question}
+\begin{answer}
+The RoPE story is the strongest answer: \texttt{flex\_attention}'s
+\texttt{score\_mod} runs \emph{on the score tensor}, after Q$\cdot$K$^\top$.
+RoPE has to be applied \emph{to Q and K before} the matmul --- it's
+mathematically not expressible as a score-mod function. So fused RoPE
+specifically requires kernel-level support, which AttnFuse has and
+\texttt{flex\_attention} does not.
+\end{answer}
+
+\begin{question}{What's the compile-time overhead in a realistic
+training loop? 1.8 seconds per kernel sounds bad.}
+\end{question}
+\begin{answer}
+1.8s is the cold-cache first call. Triton writes the PTX to
+\texttt{\textasciitilde/.triton/cache/}, so the second program-launch is
+near-instant. In a real training loop, you compile once per
+(variant $\times$ shape) combination at the start; for a fixed-architecture
+training run that's typically under 10 compilations total, amortised over
+hundreds of millions of forward passes. The number to compare is
+\textbf{compile-once-per-shape}, not per-call.
+\end{answer}
+
+\begin{question}{Are you actually going to win against PyTorch by the time
+this gets reviewed? Their compiler stack moves fast.}
+\end{question}
+\begin{answer}
+For dense/causal: no, and we don't claim to. For sliding-window + ALiBi +
+RoPE compositions: PyTorch would need to either expand \texttt{flex\_attention}
+to cover pre-score transformations, or add a new compile path for each
+combination. Both are non-trivial. Our headline claim (``compiler-generated
+fused RoPE'') is robust to PyTorch closing the gap on the score-mod path,
+because RoPE is structurally not a score-mod.
+\end{answer}
+
+%% =============================================================
+\section{Path to a Publishable Paper}
+%% =============================================================
+
+\subsection{Target venues, ranked by fit}
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{MLSys (Mar deadline, Oct decisions).} Best fit: systems
+        artifact paper with a compiler novelty and end-to-end measurements.
+        Page limit allows the full IR + RoPE + evaluation story.
+  \item \textbf{MAPL (PLDI workshop, Jun deadline).} Best fit for the
+        ``combinator algebra + two-level IR + codegen'' angle if framed as
+        a programming-languages contribution.
+  \item \textbf{NeurIPS Workshop on Efficient ML / Systems for ML
+        (Sep deadline).} Easier bar, good for a focused fused-RoPE result.
+  \item \textbf{EuroMLSys / ML Systems track at PPoPP.} Solid backup.
+\end{enumerate}
+
+\subsection{Minimum additions to make the paper competitive}
+
+Roughly in order of how much they strengthen the paper per unit of work:
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{Add \texttt{flex\_attention} to the baseline matrix.}
+        Direct head-to-head, including the RoPE case where it
+        structurally cannot compete. Estimated effort: 1 week.
+  \item \textbf{Re-tune the tile table on H100 (sm\_90) and report.}
+        Demonstrates the IR is portable and not just a 3090 artifact.
+        Need access to an H100. Effort: 1 week with hardware access.
+  \item \textbf{Nsight Compute counter-based TFLOPS / HBM / occupancy.}
+        Replaces our analytical estimates with measured numbers.
+        Effort: 2 days on a box where \texttt{ncu} works.
+  \item \textbf{Backward pass kernel + training-loop benchmark.}
+        Closes the ``inference only'' criticism. This is the single
+        largest piece of work: 3--4 weeks. Pays off in reviewer trust.
+  \item \textbf{Block-sparse mask kind.} BigBird-style global+local+random,
+        implemented as a new \texttt{MaskKind} with an index-buffer
+        inner loop. Demonstrates the IR's extensibility. Effort: 2 weeks.
+  \item \textbf{Larger model geometries (LLaMA $D{=}128$ GQA, Falcon MQA).}
+        Configuration sweep, mostly free. Effort: 3 days.
+  \item \textbf{Property-based correctness fuzzer.} Cheap reviewer
+        comfort. Effort: 2 days.
+  \item \textbf{End-to-end benchmark: full transformer forward, not just
+        the attention op.} Demonstrates real-world relevance. Effort:
+        1 week wiring through HuggingFace.
+\end{enumerate}
+
+\subsection{Suggested paper outline (8 pages)}
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item Introduction (1p): the gap, the contribution, headline numbers.
+  \item Background (1p): online softmax, Triton, RoPE.
+  \item AttnFuse design (2p): DSL, two-level IR, fusion + tiling +
+        codegen passes, fused-RoPE codegen path with figure.
+  \item Implementation (1p): tile-table derivation, dispatch
+        optimisation, Triton pitfalls.
+  \item Evaluation (2.5p): RTX 3090 + H100, all 5 variants, 3 dtypes,
+        4 seq lengths, baselines = naive, SDPA, FA2 hand-ref,
+        \texttt{flex\_attention}; roofline; ablation heatmap;
+        fused-RoPE detailed breakdown; end-to-end transformer.
+  \item Discussion + limitations + future work (0.5p).
+\end{enumerate}
+
+\subsection{Bold ``what would I do with another semester'' answer}
+
+If asked for a vision pitch:
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{Backward pass + training.} Turn AttnFuse into a training
+        DSL, not just inference.
+  \item \textbf{Hopper port (TMA + WGMMA + async pipeline).} Show the IR
+        is hardware-neutral.
+  \item \textbf{Quantised attention (fp8, int8) codegen.} The
+        \texttt{ROPE\_KIND}-style constexpr trick generalises to
+        quantisation modes with negligible compiler surface added.
+  \item \textbf{Multi-GPU ring-attention codegen.} The IR can be lowered
+        to a sequence-parallel variant; this is the biggest swing.
+  \item \textbf{Integration with HuggingFace transformers via an
+        \texttt{attn\_implementation="attnfuse"} backend.} Real users.
+\end{enumerate}
+
+%% =============================================================
+\section{One-page Cheat Sheet (for the Meeting)}
+%% =============================================================
+
+\textbf{Pitch (30 seconds).}
+``Attention is the slowest part of modern AI models. FlashAttention solves
+it for two variants but requires hand-written CUDA. AttnFuse is a small DSL
+in Python --- you write attention as five lines using combinators, we
+compile to one fused Triton kernel. On RTX~3090, we match FA2 within 15\%
+for dense and causal, and beat PyTorch by 17 to 38$\times$ for variants it
+can't accelerate. Our most novel piece is the first compiler-generated
+fused RoPE kernel.''
+
+\textbf{If asked ``why a paper?''}
+``Three angles: the IR design itself, the fused-RoPE codegen, and the
+empirical demonstration that a DSL can match hand-tuned kernels for
+common variants while opening up the long tail. The fused-RoPE result is
+the strongest single new artifact; the rest is good supporting material.''
+
+\textbf{If asked ``what's missing?''}
+``Backward pass, H100 numbers, \texttt{flex\_attention} baseline, Nsight
+Compute counters, and block-sparse. None of those are research-novel ---
+they're systems-engineering work I can scope out in advance.''
+
+\textbf{If asked ``what venue?''}
+``MLSys is the best fit. MAPL workshop is a good rehearsal venue. NeurIPS
+Efficient-ML workshop is a softer landing if the timing doesn't work.''
+
+\textbf{Things to actively ask the advisor:}
+\begin{enumerate}[leftmargin=1.4em,itemsep=1pt]
+  \item Which of the three contribution framings ((a) RoPE-focused,
+        (b)~IR-focused, (c) full system) does he see as the strongest?
+  \item Does the department / group have H100 access I could use?
+  \item Is he aware of any in-flight \texttt{flex\_attention} extensions
+        that would moot our RoPE argument before submission?
+  \item Would he be willing to be a co-author / advisor on submission?
+        Confirming this early shapes scope.
+\end{enumerate}
+
+\end{document}

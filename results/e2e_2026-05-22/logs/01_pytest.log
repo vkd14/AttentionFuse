@@ -1,0 +1,24 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/ashiqur/Documents/DSP_Project/AttnFuse
+configfile: pyproject.toml
+plugins: xdist-3.8.0, anyio-4.13.0
+collected 25 items
+
+tests/test_compiler.py ....                                              [ 16%]
+tests/test_correctness.py ........                                       [ 48%]
+tests/test_dsl.py ......                                                 [ 72%]
+tests/test_ir.py ...                                                     [ 84%]
+tests/test_smoke.py ....                                                 [100%]
+
+=============================== warnings summary ===============================
+tests/test_correctness.py:17
+  /home/ashiqur/Documents/DSP_Project/AttnFuse/tests/test_correctness.py:17: PytestUnknownMarkWarning: Unknown pytest.mark.gpu - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.gpu
+
+tests/test_smoke.py:40
+  /home/ashiqur/Documents/DSP_Project/AttnFuse/tests/test_smoke.py:40: PytestUnknownMarkWarning: Unknown pytest.mark.gpu - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.gpu
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 25 passed, 2 warnings in 2.77s ========================

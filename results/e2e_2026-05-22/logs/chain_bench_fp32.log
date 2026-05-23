@@ -1,0 +1,67 @@
+/home/ashiqur/Documents/DSP_Project/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+# 2026-05-23 01:10:27
+# device=NVIDIA GeForce RTX 3090 dtype=float32
+bert-base  dense  512  naive  0.532  128.1  6.05
+bert-base  dense  512  sdpa  0.525  32.1  6.13
+bert-base  dense  512  attnfuse  0.205  32.1  15.73
+bert-base  dense  1024  naive  1.979  440.1  6.51
+bert-base  dense  1024  sdpa  1.839  56.1  7.01
+bert-base  dense  1024  attnfuse  0.626  56.1  20.59
+bert-base  dense  2048  naive  8.742  1640.1  5.90
+bert-base  dense  2048  sdpa  7.294  104.1  7.07
+bert-base  dense  2048  attnfuse  2.294  104.1  22.46
+bert-base  dense  4096  naive  32.025  6344.1  6.44
+bert-base  dense  4096  sdpa  29.785  200.1  6.92
+bert-base  dense  4096  attnfuse  8.287  200.1  24.88
+bert-base  sliding_window  512  naive  0.808  130.4  3.99
+bert-base  sliding_window  512  sdpa  0.817  130.4  3.94
+bert-base  sliding_window  512  attnfuse  0.196  32.1  16.47
+bert-base  sliding_window  1024  naive  2.991  449.1  4.31
+bert-base  sliding_window  1024  sdpa  2.998  449.1  4.30
+bert-base  sliding_window  1024  attnfuse  0.416  56.1  30.99
+bert-base  sliding_window  2048  naive  13.458  1676.1  3.83
+bert-base  sliding_window  2048  sdpa  13.436  1676.1  3.84
+bert-base  sliding_window  2048  attnfuse  0.797  104.1  64.69
+bert-base  sliding_window  4096  naive  49.354  6488.2  4.18
+bert-base  sliding_window  4096  sdpa  48.953  6488.2  4.21
+bert-base  sliding_window  4096  attnfuse  1.530  200.1  134.71
+gpt2-small  causal  512  naive  0.830  128.4  3.88
+gpt2-small  causal  512  sdpa  0.340  32.1  9.48
+gpt2-small  causal  512  attnfuse  0.137  32.1  23.48
+gpt2-small  causal  1024  naive  3.045  441.1  4.23
+gpt2-small  causal  1024  sdpa  1.091  56.1  11.81
+gpt2-small  causal  1024  attnfuse  0.430  56.1  29.96
+gpt2-small  causal  2048  naive  13.314  1644.1  3.87
+gpt2-small  causal  2048  sdpa  3.925  104.1  13.13
+gpt2-small  causal  2048  attnfuse  1.354  104.1  38.07
+gpt2-small  causal  4096  naive  48.441  6360.1  4.26
+gpt2-small  causal  4096  sdpa  15.300  200.1  13.47
+gpt2-small  causal  4096  attnfuse  4.640  200.1  44.43
+gpt2-small  sliding_window  512  naive  0.833  130.4  3.87
+gpt2-small  sliding_window  512  sdpa  0.851  130.4  3.79
+gpt2-small  sliding_window  512  attnfuse  0.201  32.1  16.05
+gpt2-small  sliding_window  1024  naive  3.067  449.1  4.20
+gpt2-small  sliding_window  1024  sdpa  3.003  449.1  4.29
+gpt2-small  sliding_window  1024  attnfuse  0.420  56.1  30.69
+gpt2-small  sliding_window  2048  naive  13.564  1676.1  3.80
+gpt2-small  sliding_window  2048  sdpa  13.500  1676.1  3.82
+gpt2-small  sliding_window  2048  attnfuse  0.793  104.1  65.03
+gpt2-small  sliding_window  4096  naive  49.125  6488.2  4.20
+gpt2-small  sliding_window  4096  sdpa  49.259  6488.2  4.19
+gpt2-small  sliding_window  4096  attnfuse  1.555  200.1  132.54
+gpt2-small  causal_alibi  512  naive  1.054  135.1  3.06
+gpt2-small  causal_alibi  512  sdpa  1.070  135.1  3.01
+gpt2-small  causal_alibi  512  attnfuse  0.140  32.1  22.96
+gpt2-small  causal_alibi  1024  naive  3.838  480.1  3.36
+gpt2-small  causal_alibi  1024  sdpa  3.843  480.1  3.35
+gpt2-small  causal_alibi  1024  attnfuse  0.440  56.1  29.26
+gpt2-small  causal_alibi  2048  naive  17.426  1824.1  2.96
+gpt2-small  causal_alibi  2048  sdpa  17.456  1824.1  2.95
+gpt2-small  causal_alibi  2048  attnfuse  1.356  104.1  38.01
+gpt2-small  causal_alibi  4096  naive  65.225  7128.2  3.16
+gpt2-small  causal_alibi  4096  sdpa  64.472  7128.2  3.20
+gpt2-small  causal_alibi  4096  attnfuse  4.644  200.1  44.39
+
+[ok] wrote results/e2e_2026-05-22/eval_fp32.csv
+==[done  bench_fp32 @ 0:40.11 elapsed]==

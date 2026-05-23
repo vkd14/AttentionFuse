@@ -1,0 +1,22 @@
+==[start bench_bf16 @ 01:10:03]==
+results/e2e_2026-05-22/run_chain.sh: line 17: results/e2e_2026-05-22/bench_bf16.csv: No such file or directory
+==[finished bench_bf16, exit=0 rows=n/a]==
+==[start bench_fp32 @ 01:10:26]==
+results/e2e_2026-05-22/run_chain.sh: line 17: results/e2e_2026-05-22/bench_fp32.csv: No such file or directory
+==[finished bench_fp32, exit=0 rows=n/a]==
+==[start rope_bench @ 01:11:06]==
+==[finished rope_bench, exit=0 rows=9]==
+==[start jit_compile @ 01:11:10]==
+==[finished jit_compile, exit=0 rows=6]==
+==[start roofline @ 01:11:12]==
+==[finished roofline, exit=0 rows=17]==
+==[start ablation @ 01:11:17]==
+==[finished ablation, exit=0 rows=49]==
+==[all done @ 01:11:43]==
+-rw-rw-r-- 1 ashiqur ashiqur 1599 May 23 01:11 results/e2e_2026-05-22/ablation.csv
+-rw-rw-r-- 1 ashiqur ashiqur 3563 May 23 01:10 results/e2e_2026-05-22/eval_bf16.csv
+-rw-rw-r-- 1 ashiqur ashiqur 3563 May 23 01:08 results/e2e_2026-05-22/eval_fp16.csv
+-rw-rw-r-- 1 ashiqur ashiqur 3178 May 23 01:11 results/e2e_2026-05-22/eval_fp32.csv
+-rw-rw-r-- 1 ashiqur ashiqur  193 May 23 01:11 results/e2e_2026-05-22/jit_compile.csv
+-rw-rw-r-- 1 ashiqur ashiqur  731 May 23 01:11 results/e2e_2026-05-22/roofline.csv
+-rw-rw-r-- 1 ashiqur ashiqur  243 May 23 01:11 results/e2e_2026-05-22/rope_bench.csv

@@ -1,0 +1,632 @@
+%% ============================================================
+%%  AttnFuse — Glossary of Terms
+%%  Plain-English definitions of every piece of jargon used
+%%  in the project, the report, and the slides.
+%% ============================================================
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.9in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,
+            citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{titlesec}
+
+\titleformat{\section}{\Large\bfseries\color{blue!60!black}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{black!75}}{}{0pt}{}
+
+% Definition macro: \term{Name}{plain-english definition}
+\newcommand{\term}[2]{%
+  \par\smallskip
+  \noindent\textbf{\color{blue!50!black}#1.} #2\par
+}
+% Definition with a "why it matters" follow-up
+\newcommand{\termw}[3]{%
+  \par\smallskip
+  \noindent\textbf{\color{blue!50!black}#1.} #2 \emph{\color{black!60}Why it matters here:} #3\par
+}
+
+\title{\textbf{AttnFuse Glossary}\\[4pt]
+       \large Every piece of jargon in the project, in plain English}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textit{Use this as a dictionary. Each term has a one-sentence plain
+explanation; for the ones that show up often in the AttnFuse code, the report,
+or the slides, there is also a short ``why it matters here'' line so you can
+see how the concept fits into the project.}
+
+\tableofcontents
+\bigskip
+
+%% =============================================================
+\section{AI \& Attention Basics}
+%% =============================================================
+
+\termw{Transformer}
+{The neural-network architecture behind GPT, BERT, LLaMA, etc. Made of repeated
+``attention'' and ``feed-forward'' blocks.}
+{Every variant we accelerate lives inside a transformer.}
+
+\termw{Self-attention}
+{The step where every word in the input looks at every other word and figures
+out which ones to pay attention to.}
+{This is the whole thing AttnFuse optimises.}
+
+\term{Cross-attention}
+{Like self-attention, but the ``looking'' tensor (queries) comes from one
+sequence and the ``looked-at'' tensor (keys/values) from another. Used in
+encoder--decoder models. \emph{Not yet supported by AttnFuse.}}
+
+\termw{Q, K, V (Query, Key, Value)}
+{Three vectors derived from each word. $Q$ is ``what I'm looking for,''
+$K$ is ``what I am'' (used for matching), $V$ is ``what I carry'' (the
+actual information to mix in).}
+{Every attention combinator in AttnFuse takes $Q$, $K$, $V$ as input.}
+
+\termw{Attention score matrix ($S$)}
+{The $N \times N$ table of numbers you get from $S = QK^\top / \sqrt{d}$.
+Entry $S_{i,j}$ says ``how much should I care about word $j$ when reading
+word $i$?''}
+{This is the matrix we never want to write to slow GPU memory.}
+
+\termw{Softmax}
+{The function that turns raw scores into percentages that add up to 1.
+$\text{softmax}(x_i) = e^{x_i} / \sum_j e^{x_j}$.}
+{Turns the score matrix into attention probabilities.}
+
+\termw{Online softmax (Milakov \& Gimelshein, 2018)}
+{A way to compute softmax tile-by-tile, keeping just a running max and a
+running sum, without ever holding the full row in memory.}
+{This is the algorithmic trick that lets FlashAttention --- and AttnFuse ---
+process attention without writing out the $N \times N$ score matrix.}
+
+\termw{Head / multi-head attention}
+{Attention is run multiple times in parallel with different learned
+projections; each parallel run is a ``head.'' GPT-2 small has 12 heads.}
+{The kernel processes all heads in parallel; \texttt{num\_heads} is one
+of the kernel parameters.}
+
+\termw{head\_dim ($D$)}
+{The dimensionality of $Q$, $K$, $V$ per head. GPT-2 uses $D{=}64$;
+LLaMA uses $D{=}128$.}
+{One of the constexpr knobs in the kernel. The tile table is indexed by it.}
+
+\term{N (sequence length)}
+{The number of tokens in the input. We benchmark $N \in \{512, 1024, 2048, 4096\}$.}
+
+\term{B (batch size)}
+{How many independent sequences we process at once.}
+
+\termw{Positional encoding}
+{Extra information added so the model knows which word came first, second,
+etc. Pure attention is order-blind without this.}
+{ALiBi and RoPE are two flavours of positional encoding, both supported.}
+
+%% =============================================================
+\section{Attention Variants}
+%% =============================================================
+
+\termw{Dense attention}
+{Every word attends to every other word. Used in BERT (encoder-only).}
+{The simplest variant; matches FA2 within 15\%.}
+
+\termw{Causal attention}
+{Each word can only look at itself and the words before it. Used in
+autoregressive models like GPT.}
+{Implemented via a lower-triangular mask. The kernel's inner loop trims
+upper-triangular blocks.}
+
+\termw{Sliding-window attention}
+{Each word only looks at the last $W$ words (or $\pm W$ for bidirectional).
+Used in Mistral ($W{=}4096$) and Longformer.}
+{Our biggest win vs PyTorch SDPA (38$\times$ at $N{=}4096$).}
+
+\termw{ALiBi (Attention with Linear Biases)}
+{Press et al., 2022: add a small linear penalty proportional to the
+distance between words. Works without learned position embeddings.}
+{One of our bias combinators (\texttt{af.alibi}).}
+
+\termw{RoPE (Rotary Position Embedding)}
+{Su et al., 2021: encode position by \emph{rotating} the $Q$ and $K$
+vectors by an angle that depends on the word's position. Used in LLaMA,
+Mistral, Falcon.}
+{Our novel fused-kernel implementation rotates inside the inner loop ---
+the project's most distinctive technical contribution.}
+
+\termw{Additive bias attention}
+{Score gets an extra bias matrix added: $S' = S + B$. The bias can be
+relative-position, learned, or task-specific.}
+{Supported as \texttt{af.additive\_bias} --- bias passed at call time, no
+recompilation.}
+
+\termw{Block-sparse attention (BigBird-style)}
+{A sparsity pattern combining global tokens + local windows + random
+attention. Lets you process very long sequences sub-quadratically.}
+{\emph{Not yet implemented} in AttnFuse; mentioned in the proposal and
+listed under future work.}
+
+\termw{MQA / GQA (Multi-Query / Grouped-Query Attention)}
+{Variants where the keys and values are shared across multiple query heads
+to save memory. MQA: one K/V head total; GQA: a few groups.}
+{Llama 3 uses GQA. Adding it is on the publication-extension list.}
+
+%% =============================================================
+\section{GPU Hardware Concepts}
+%% =============================================================
+
+\termw{GPU (Graphics Processing Unit)}
+{A massively parallel processor designed for throughput, not latency.}
+{The hardware we target. We benchmark on an RTX~3090.}
+
+\termw{SM (Streaming Multiprocessor)}
+{The basic ``core'' of a GPU --- a self-contained block that runs many
+threads in parallel. RTX~3090 has 82 SMs.}
+{Our kernel launches one block per (batch, head, query-tile); each block
+runs on one SM.}
+
+\termw{Warp}
+{A group of 32 threads that execute the same instruction together. The
+basic unit of GPU scheduling.}
+{\texttt{num\_warps} per block is a tile-config knob; we mostly use 4 or 8.}
+
+\termw{Thread}
+{The smallest unit of work; warps are made of 32 threads.}
+{We don't write per-thread code --- Triton handles that.}
+
+\termw{HBM (High-Bandwidth Memory)}
+{The big, slow off-chip memory on a GPU. RTX~3090 has 24~GB of GDDR6X at
+936~GB/s.}
+{Writing the $N \times N$ score matrix here is the cost FlashAttention
+eliminates.}
+
+\termw{SMEM (Shared Memory) / SRAM}
+{The small, fast on-chip memory per SM. RTX~3090 has roughly 101~KB
+usable per block.}
+{Where Q, K, V tiles live during the tiled loop. The tile-config decision
+is dominated by ``how much fits in SMEM.''}
+
+\termw{Register file}
+{Even faster on-chip storage --- thousands of 32-bit registers per warp.}
+{Where the running max $m$, running sum $\ell$, and accumulator
+$\mathbf{acc}$ live during online softmax.}
+
+\termw{Tensor Cores}
+{Special hardware on Ampere+ GPUs that does small matrix multiplies very
+fast (in fp16/bf16). RTX~3090 peak: 142 TFLOPS fp16.}
+{All our matmuls (Q$\cdot$K$^\top$, P$\cdot$V) hit tensor cores.}
+
+\termw{TFLOPS (Teraflops per second)}
+{Trillions of floating-point operations per second. The throughput
+metric.}
+{Our headline numbers (105 TFLOPS causal, 298 TFLOPS sliding-window).}
+
+\termw{HBM bandwidth (GB/s)}
+{How fast you can read/write off-chip memory. RTX~3090: 936~GB/s.}
+{The denominator of the roofline analysis.}
+
+\termw{Arithmetic intensity (FLOP/byte)}
+{Math operations per byte of memory traffic. A kernel with low intensity
+is bandwidth-bound; high intensity is compute-bound.}
+{Plotted on the X-axis of the roofline figure.}
+
+\termw{Ridge point}
+{The arithmetic intensity at which a kernel transitions from
+memory-bound to compute-bound. RTX~3090: $\sim$152 FLOP/byte.}
+{If your kernel is below this number, optimising compute is wasted ---
+fix memory traffic first.}
+
+\termw{Roofline model (Williams et al., 2009)}
+{A plot showing peak FLOPS vs peak bandwidth and where your kernel sits.}
+{Used in our evaluation; \texttt{benchmarks/roofline\_runner.py}.}
+
+\termw{Compute-bound / Memory-bound}
+{A kernel is compute-bound when math is the bottleneck, memory-bound when
+moving data is. Most attention kernels at long $N$ are compute-bound.}
+{Helps explain why dense at small $N$ underperforms.}
+
+\termw{Occupancy}
+{Fraction of the GPU's parallel slots actually filled. Higher is usually
+better, up to a point.}
+{Tile-config decisions balance occupancy against per-block resource use.}
+
+\termw{Ampere (sm\_86) / Hopper (sm\_90)}
+{NVIDIA GPU generations. RTX~3090 = Ampere; A100 = Ampere data-center;
+H100 = Hopper.}
+{Our tile table is Ampere-tuned. Re-tuning for Hopper is on the
+extension list.}
+
+\termw{PTX}
+{NVIDIA's pseudo-assembly language --- one level above actual GPU machine
+code. Triton compiles down to PTX.}
+{Cached by Triton in \texttt{\textasciitilde/.triton/cache/}.}
+
+%% =============================================================
+\section{Programming Models for GPUs}
+%% =============================================================
+
+\termw{Kernel}
+{A function that runs on the GPU, launched from the CPU.}
+{The compiled output of AttnFuse is a single kernel per variant.}
+
+\termw{Kernel launch}
+{The act of telling the GPU ``run this kernel with this grid of blocks
+on these arguments.''}
+{Has a fixed overhead ($\sim$5~$\mu$s). One reason we fuse multiple
+operations into one launch.}
+
+\termw{Fused kernel}
+{A single kernel that does what several separate kernels would do, by
+keeping intermediate values in fast memory.}
+{The reason AttnFuse exists. Naive attention launches 5+ kernels; we
+launch 1.}
+
+\termw{CUDA}
+{NVIDIA's low-level GPU programming language (C++ flavoured). Maximum
+control, maximum verbosity. FlashAttention is written in CUDA.}
+{We \emph{don't} write CUDA --- we target Triton instead.}
+
+\termw{Triton (Tillet et al., 2019)}
+{A Python-embedded language for writing GPU kernels at the tile level
+rather than the thread level. Compiles to PTX via LLVM.}
+{Our codegen target. Roughly 85\% of CUDA performance for $\sim$10\% of
+the work.}
+
+\termw{\texttt{@triton.jit}}
+{Decorator that marks a Python function as a Triton kernel. The function
+is JIT-compiled to PTX on first call.}
+{All AttnFuse kernels are \texttt{@triton.jit}.}
+
+\termw{\texttt{tl.constexpr}}
+{Triton type marker that says ``this argument is known at compile time,
+specialise the kernel for its value.''}
+{The mechanism behind ``one kernel, many variants.'' \texttt{MASK\_KIND},
+\texttt{BIAS\_KIND}, etc. are all constexpr.}
+
+\termw{JIT (Just-In-Time) compilation}
+{Compile when first called, not ahead of time. Triton uses JIT so it can
+specialise per shape.}
+{Cost: 0.8--1.8 seconds for our first call. Subsequent calls hit the cache.}
+
+\termw{LLVM}
+{The compiler backend Triton uses to lower its IR to PTX.}
+{Most of Triton's compile time is actually LLVM optimisation.}
+
+\termw{Autotune}
+{Triton's built-in mechanism to try multiple tile configs at JIT time
+and pick the fastest.}
+{We \emph{don't} use this; we have a hand-picked tile table. Future work.}
+
+%% =============================================================
+\section{Compiler \& Language Concepts}
+%% =============================================================
+
+\termw{DSL (Domain-Specific Language)}
+{A small language designed for a narrow problem. SQL, HTML, regex are DSLs.}
+{AttnFuse is a DSL for attention.}
+
+\termw{Embedded DSL}
+{A DSL that lives inside a host language --- you use the host's syntax,
+the DSL is just a library.}
+{AttnFuse is embedded in Python; combinators are Python functions.}
+
+\termw{Operator overloading}
+{Redefining what \texttt{+}, \texttt{@}, etc.\ mean on your own objects.}
+{We override \texttt{@} on the \texttt{TensorSym} class so
+\texttt{P @ V} builds a graph node instead of multiplying.}
+
+\termw{Symbolic tracing}
+{Running a function once with placeholder objects to record what
+operations it would perform, without actually doing them.}
+{How we capture the user's attention function into a graph.}
+
+\termw{IR (Intermediate Representation)}
+{A data structure the compiler manipulates --- between user code and
+machine code. ``Halfway'' representation.}
+{AttnFuse has two: a high-level graph and a low-level TiledKernel.}
+
+\termw{High-level IR (the Graph)}
+{Captures \emph{what the user wrote} --- a DAG of typed nodes
+(ScoreOp, MaskOp, BiasOp, NormOp, MatMulPV).}
+{Lives in \texttt{attnfuse/ir/high\_level.py}. Hashed to make the cache key.}
+
+\termw{Low-level IR (TiledKernel)}
+{Captures \emph{how the kernel should be tiled} --- block sizes,
+constexpr flags, scale factors. Flat record, no graph structure.}
+{Lives in \texttt{attnfuse/ir/tiled.py}.}
+
+\termw{Lowering}
+{Translating a higher-level IR to a lower-level one, removing abstraction.}
+{Our \texttt{lower\_to\_tiled} pass.}
+
+\termw{Compiler pass}
+{A single transformation that reads the IR and produces a new IR (or the
+same IR, modified).}
+{We have four: fuse, tile, lower, codegen.}
+
+\termw{Fusion}
+{Combining multiple operations so their intermediate results never leave
+fast memory.}
+{Score $\to$ mask $\to$ bias $\to$ softmax $\to$ matmul-with-V all fused
+into one tiled loop.}
+
+\termw{Tiling}
+{Splitting a big loop into nested loops over small ``tiles'' that fit
+in fast memory.}
+{Our \texttt{choose\_tile\_config} pass picks tile dimensions.}
+
+\termw{Codegen}
+{The compiler stage that emits the target source code (Triton, in our
+case) from the lowest IR.}
+{Lives in \texttt{attnfuse/compiler/codegen.py}.}
+
+\termw{Specialisation}
+{Generating a separate compiled version of a function for each unique set
+of compile-time inputs.}
+{Triton specialises our kernel per (MASK\_KIND, BIAS\_KIND, NORM\_KIND,
+ROPE\_KIND, BLOCK\_M, BLOCK\_N, HEAD\_DIM) tuple.}
+
+\termw{Dataflow graph / DAG}
+{A directed acyclic graph where nodes are operations and edges are
+data dependencies.}
+{Our high-level IR.}
+
+\termw{AST (Abstract Syntax Tree)}
+{The tree representation of source code after parsing. We \emph{don't}
+work with Python ASTs --- we trace symbolically instead.}
+
+\termw{MLIR}
+{Multi-Level IR --- an LLVM project for building reusable compiler IRs.
+Has many ``dialects'' for different domains.}
+{Inspired our two-level design, but we don't depend on it. Writing an
+MLIR dialect was considered and rejected as overkill for one project.}
+
+\termw{TVM}
+{An end-to-end deep-learning compiler with schedule/compute separation.}
+{Comparable scope; broader than attention. We took inspiration but
+implemented our own pipeline.}
+
+\termw{Halide}
+{An older image-processing DSL with schedule/compute separation; an
+ancestor of TVM.}
+{Conceptual prior art, not a direct comparison.}
+
+%% =============================================================
+\section{Numerical Formats}
+%% =============================================================
+
+\termw{fp32 (single precision)}
+{32-bit floating point. Default for general-purpose computing.}
+{Our slowest dtype on GPU; tensor cores prefer 16-bit.}
+
+\termw{fp16 (half precision)}
+{16-bit floating point. Half the memory, twice the throughput on tensor
+cores. Limited range can cause underflow.}
+{Our primary benchmark dtype.}
+
+\termw{bf16 (brain float, bfloat16)}
+{16-bit floating point with the same exponent range as fp32 but reduced
+mantissa. Same speed as fp16, fewer underflow problems.}
+{Standard for LLM training. We benchmark all three (fp16, bf16, fp32).}
+
+\termw{fp8 / int8}
+{8-bit formats used in inference quantisation. Not currently supported
+by AttnFuse; future work.}
+
+\termw{Numerical stability}
+{Whether a computation gives a sensible answer despite floating-point
+limits.}
+{Softmax is unstable without the max-subtraction trick. Online softmax
+preserves that trick across tiles.}
+
+\termw{Max-subtraction trick}
+{Compute $\text{softmax}(x)$ as $e^{x_i - m}/\sum_j e^{x_j - m}$ where
+$m = \max(x)$. Same answer, no overflow.}
+{The reason online softmax works.}
+
+%% =============================================================
+\section{AttnFuse-Specific Vocabulary}
+%% =============================================================
+
+\termw{Combinator}
+{A composable building block --- in AttnFuse, a function that takes
+graph nodes and returns a graph node.}
+{We have seven: \texttt{scaled\_dot\_product}, \texttt{rope},
+\texttt{causal}, \texttt{sliding\_window}, \texttt{alibi},
+\texttt{additive\_bias}, \texttt{softmax}.}
+
+\termw{\texttt{@af.attention}}
+{The decorator the user puts on their attention function. It triggers
+tracing, lowering, codegen, and caching on first call.}
+
+\termw{\texttt{TensorSym}}
+{Symbolic placeholder for a tensor. Doesn't carry data --- only shape,
+dtype, and a name. Used during tracing.}
+
+\termw{ScoreOp / MaskOp / BiasOp / NormOp / MatMulPV}
+{Node types in the high-level IR. Each combinator emits one of these.}
+
+\termw{MASK\_KIND}
+{Integer constexpr in the kernel: $0 =$ none, $1 =$ causal, $2 =$ sliding-
+window. Selected by the user via the mask combinator.}
+
+\termw{BIAS\_KIND}
+{Integer constexpr: $0 =$ none, $1 =$ ALiBi, $2 =$ additive (external tensor).}
+
+\termw{NORM\_KIND}
+{Integer constexpr: $0 =$ softmax, $1 =$ ReLU attention.}
+
+\termw{ROPE\_KIND}
+{Integer constexpr: $0 =$ off, $1 =$ fused RoPE on.}
+
+\termw{BLOCK\_M, BLOCK\_N}
+{The query-tile and key-tile sizes in the inner loop. Typically 128 and
+64 for fp16 on Ampere.}
+
+\termw{num\_warps}
+{Warps per block (Triton parameter). Usually 4 or 8.}
+
+\termw{num\_stages}
+{Pipeline depth for asynchronous memory loads. Higher = more overlap of
+load and compute, more SMEM use.}
+{We use 3 for fp16, 2 for fp32 and for RoPE variants (SMEM-constrained).}
+
+\termw{LaunchBundle}
+{Cache entry holding everything needed to launch a compiled kernel:
+the JIT-compiled function, the constexpr dictionary, placeholder
+slope/bias/RoPE tensors, and the launch grid.}
+{Reduces per-call dispatch overhead from $\sim$7~$\mu$s to $<$1~$\mu$s.}
+
+\termw{Dispatch}
+{The runtime step that takes user arguments, looks up the cached kernel,
+and launches it.}
+{Lives in \texttt{attnfuse/runtime/dispatch.py}.}
+
+\termw{Graph signature}
+{A SHA-1 hash of the high-level IR's structural content. The cache key.}
+{Same graph $\Rightarrow$ same signature $\Rightarrow$ same compiled kernel.}
+
+\termw{\_generated/}
+{Directory where we write generated Triton kernel source. Lets Triton's
+JIT read the source via \texttt{importlib} (needed for LLVM hashing).}
+
+\termw{Placeholder tensors}
+{Tiny $(1,1)$ tensors used for unused kernel arguments (e.g., the bias
+pointer when BIAS\_KIND${=}0$). Cached via \texttt{lru\_cache}.}
+
+%% =============================================================
+\section{Benchmarking \& Evaluation Terms}
+%% =============================================================
+
+\termw{Latency}
+{Time from launch to result, usually in milliseconds.}
+{Our primary speed metric.}
+
+\termw{Throughput}
+{Work done per unit time, usually TFLOPS for kernels or tokens/second
+for models.}
+
+\termw{Wall-clock time}
+{Real elapsed time, as opposed to CPU time. Synonymous with latency for
+GPU work.}
+
+\termw{CUDA events}
+{Hardware timestamps that measure GPU work accurately, unaffected by
+CPU--GPU sync overhead.}
+{We use \texttt{torch.cuda.Event} for all timings.}
+
+\termw{Warmup}
+{Initial kernel runs that we discard from timing, to let caches warm up
+and JIT compile.}
+{5 warmup + 50 timed iterations, median reported.}
+
+\termw{Baseline}
+{The thing you compare against. We use three: \texttt{naive} (eager
+PyTorch), \texttt{sdpa} (PyTorch's flash backend), and \texttt{flash\_ref}
+(our hand-written Triton FA2).}
+
+\termw{\texttt{F.scaled\_dot\_product\_attention} (SDPA)}
+{PyTorch's official attention call. Dispatches to a fixed set of
+backends including FlashAttention-2.}
+{Our main comparison target. SDPA falls back to slow code for
+non-standard masks.}
+
+\termw{FlashAttention / FA2 (Dao 2022, 2023)}
+{The hand-written CUDA kernel that pioneered IO-aware tiled attention.
+What SDPA dispatches to under the hood.}
+{Our performance ceiling for the dense and causal variants.}
+
+\termw{Speedup}
+{Ratio of baseline time to our time. $38\times$ means we are 38 times
+faster.}
+
+\termw{Ablation study}
+{Sweeping one parameter at a time to see its effect.}
+{Our tile-config study sweeps BLOCK\_M, BLOCK\_N, num\_warps, num\_stages.}
+
+\termw{Peak memory}
+{The highest GPU memory usage during the run, in MB.}
+{The ``thrifty'' metric --- what makes long contexts feasible.}
+
+\termw{Nsight Compute (\texttt{ncu})}
+{NVIDIA's kernel-level profiler. Measures real tensor-core utilisation,
+real HBM traffic, occupancy.}
+{Not available on our evaluation host --- our TC\% and HBM~GB/s are
+computed analytically.}
+
+%% =============================================================
+\section{Tools \& Ecosystem}
+%% =============================================================
+
+\termw{PyTorch}
+{The deep-learning framework we use as a baseline and dependency.}
+
+\termw{\texttt{torch.compile}}
+{PyTorch's recent graph-compiler backend (TorchDynamo + Inductor).
+Auto-fuses simple op patterns.}
+{Adjacent technology; we don't go through it.}
+
+\termw{\texttt{flex\_attention} (PyTorch 2.5+, 2024)}
+{A newer PyTorch API where you supply a \texttt{score\_mod} function to
+modify attention scores; it generates a fused kernel automatically.}
+{Our closest competitor. Cannot fuse RoPE (which acts on Q, K \emph{before}
+the matmul, not on the score).}
+
+\termw{xFormers}
+{Meta's library of hand-written attention kernels.}
+{Adjacent prior art; not a DSL.}
+
+\termw{Liger Kernel}
+{A library of fused Triton implementations of common LLM operators.}
+{Adjacent; not a DSL.}
+
+\termw{HuggingFace transformers}
+{The standard library of pretrained transformer models.}
+{Not currently integrated; a future paper extension.}
+
+\termw{pytest}
+{The Python testing framework. Our 25 correctness tests run under it.}
+
+%% =============================================================
+\section{Quick-Reference: Acronyms at a Glance}
+%% =============================================================
+
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+  \item \textbf{ALiBi} --- Attention with Linear Biases (positional bias).
+  \item \textbf{AST} --- Abstract Syntax Tree.
+  \item \textbf{BERT} --- Bidirectional Encoder Representations from Transformers.
+  \item \textbf{bf16} --- Brain float, 16-bit.
+  \item \textbf{CUDA} --- NVIDIA's GPU programming language.
+  \item \textbf{DAG} --- Directed Acyclic Graph.
+  \item \textbf{DSL} --- Domain-Specific Language.
+  \item \textbf{FA2} --- FlashAttention-2.
+  \item \textbf{fp16 / fp32 / fp8} --- Floating-point, 16 / 32 / 8 bit.
+  \item \textbf{GQA / MQA} --- Grouped-Query / Multi-Query Attention.
+  \item \textbf{HBM} --- High-Bandwidth Memory (GPU's main memory).
+  \item \textbf{IR} --- Intermediate Representation.
+  \item \textbf{JIT} --- Just-In-Time (compilation).
+  \item \textbf{LLM} --- Large Language Model.
+  \item \textbf{MLIR} --- Multi-Level Intermediate Representation.
+  \item \textbf{MLSys} --- Machine Learning and Systems conference.
+  \item \textbf{NCU} --- Nsight Compute (NVIDIA's profiler).
+  \item \textbf{PTX} --- NVIDIA's pseudo-assembly (below CUDA).
+  \item \textbf{QKV} --- Query, Key, Value (the three attention projections).
+  \item \textbf{RoPE} --- Rotary Position Embedding.
+  \item \textbf{SDPA} --- Scaled Dot-Product Attention (PyTorch's API).
+  \item \textbf{SMEM} --- Shared Memory (GPU's fast on-chip memory).
+  \item \textbf{SM} --- Streaming Multiprocessor.
+  \item \textbf{sm\_86 / sm\_90} --- Compute capability (Ampere / Hopper).
+  \item \textbf{SW} --- Sliding-Window (attention).
+  \item \textbf{TFLOPS} --- Trillions of FLoating-point OPerations per Second.
+  \item \textbf{TVM} --- Apache TVM, a deep-learning compiler.
+\end{itemize}
+
+\end{document}

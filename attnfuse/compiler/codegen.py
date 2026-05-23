@@ -153,80 +153,204 @@ def attnfuse_fwd_kernel(
     # Round n_lo down to BLOCK_N boundary so the mask logic is uniform
     n_lo = (n_lo // BLOCK_N) * BLOCK_N
 
-    for n_start in range(n_lo, n_hi, BLOCK_N):
-        cur_n = n_start + offs_n
-        k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
-        v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
-        n_in_bounds = cur_n < N
+    if MASK_KIND == 2:
+        # Sliding-window: split the inner loop into
+        #   [n_lo, interior_lo)        — left boundary  (apply SW mask)
+        #   [interior_lo, interior_hi) — interior        (NO mask: ~45% of tiles)
+        #   [interior_hi, n_hi)        — right boundary (apply SW mask)
+        # Interior tile [n_start, n_start+BLOCK_N) is "fully inside the window"
+        # iff for ALL (m, n) in [m_lo, m_hi) x [n_start, n_start+BLOCK_N):
+        # -W < m - n < W. Equivalently:
+        #   n_start >= m_hi - W   (worst case: m = m_hi - 1)
+        #   n_start <= m_lo + W - BLOCK_N   (worst case: m = m_lo, n = n_start+BLOCK_N-1)
+        interior_lo_raw = tl.maximum(m_hi - WINDOW, n_lo)
+        interior_lo     = ((interior_lo_raw + BLOCK_N - 1) // BLOCK_N) * BLOCK_N
+        interior_hi_max = m_lo + WINDOW - BLOCK_N
+        interior_hi     = (interior_hi_max // BLOCK_N) * BLOCK_N + BLOCK_N
+        interior_hi     = tl.minimum(interior_hi, n_hi)
+        interior_lo     = tl.minimum(interior_lo, interior_hi)
 
-        k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
-        v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
-
-        # Fused RoPE: rotate K tile each iteration (positions change per n-block)
-        if ROPE_KIND == 1:
-            k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
-            k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
-            k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
-            k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
-            k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
-            k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
-            k = (k.to(tl.float32) * k_cos.to(tl.float32)
-                 + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
-                 ).to(k.dtype)
-
-        # S = q @ k.T  -> (BLOCK_M, BLOCK_N)
-        s = tl.dot(q, tl.trans(k))
-        s = s * sm_scale
-
-        # ----- Bias -----
-        if BIAS_KIND == 1:                                 # ALiBi
-            dist = tl.abs(offs_m[:, None] - cur_n[None, :])
-            s = s + (-slope * dist.to(tl.float32))
-        elif BIAS_KIND == 2:                               # external (B,H,N,N) bias tensor
-            b_ptrs = (bias_ptr
-                      + b * stride_biasb
-                      + h * stride_biash
-                      + offs_m[:, None] * stride_biasm
-                      + cur_n[None, :] * stride_biasn)
-            b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
-            b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
-            s = s + b_tile.to(tl.float32)
-
-        # ----- Mask -----
-        if MASK_KIND == 1:                                 # causal
-            causal_mask = offs_m[:, None] >= cur_n[None, :]
-            s = tl.where(causal_mask, s, -float("inf"))
-        elif MASK_KIND == 2:                               # sliding window
+        # ----- LOOP 1: left boundary (apply SW mask + safe softmax) -----
+        for n_start in range(n_lo, interior_lo, BLOCK_N):
+            cur_n = n_start + offs_n
+            k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
+            v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
+            n_in_bounds = cur_n < N
+            k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            if ROPE_KIND == 1:
+                k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
+                k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k = (k.to(tl.float32) * k_cos.to(tl.float32)
+                     + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
+                     ).to(k.dtype)
+            s = tl.dot(q, tl.trans(k))
+            s = s * sm_scale
+            if BIAS_KIND == 1:
+                dist = tl.abs(offs_m[:, None] - cur_n[None, :])
+                s = s + (-slope * dist.to(tl.float32))
+            elif BIAS_KIND == 2:
+                b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
+                          + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
+                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
+                s = s + b_tile.to(tl.float32)
             d = offs_m[:, None] - cur_n[None, :]
             sw_mask = (d < WINDOW) & (d > -WINDOW)
             s = tl.where(sw_mask, s, -float("inf"))
-
-        # Out-of-N keys are masked too (handles N % BLOCK_N != 0)
-        s = tl.where(n_in_bounds[None, :], s, -float("inf"))
-
-        if NORM_KIND == 0:
-            # ----- Online softmax -----
-            # Sliding-window can produce fully-masked blocks (all scores == -inf)
-            # when query row i has no keys within the window in this n-block.
-            if MASK_KIND == 2:
-                block_max = tl.max(s, axis=1)
-                m_new     = tl.maximum(m_i, block_max)
-                all_masked  = (block_max == float("-inf"))
-                alpha       = tl.where(all_masked, 1.0, tl.exp(m_i - m_new))
-                safe_m_new  = tl.where(all_masked, tl.zeros_like(m_new), m_new)
-                p           = tl.exp(s - safe_m_new[:, None])
+            s = tl.where(n_in_bounds[None, :], s, -float("inf"))
+            if NORM_KIND == 0:
+                block_max  = tl.max(s, axis=1)
+                m_new      = tl.maximum(m_i, block_max)
+                all_masked = (block_max == float("-inf"))
+                alpha      = tl.where(all_masked, 1.0, tl.exp(m_i - m_new))
+                safe_m_new = tl.where(all_masked, tl.zeros_like(m_new), m_new)
+                p          = tl.exp(s - safe_m_new[:, None])
+                l_i = alpha * l_i + tl.sum(p, axis=1)
+                acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
+                m_i = m_new
             else:
+                p = tl.maximum(s, 0.0)
+                l_i = l_i + tl.sum(p, axis=1)
+                acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
+
+        # ----- LOOP 2: interior (no SW mask, plain online softmax) -----
+        # In this range all keys are guaranteed in-window for every query row
+        # and within [0, N), so no mask logic is needed at all.
+        for n_start in range(interior_lo, interior_hi, BLOCK_N):
+            cur_n = n_start + offs_n
+            k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
+            v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
+            k = tl.load(k_ptrs)
+            v = tl.load(v_ptrs)
+            if ROPE_KIND == 1:
+                k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_cos = tl.load(k_cos_ptrs)
+                k_sin = tl.load(k_sin_ptrs)
+                k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
+                k_rot_half = tl.load(k_rh_ptrs)
+                k = (k.to(tl.float32) * k_cos.to(tl.float32)
+                     + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
+                     ).to(k.dtype)
+            s = tl.dot(q, tl.trans(k))
+            s = s * sm_scale
+            if BIAS_KIND == 1:
+                dist = tl.abs(offs_m[:, None] - cur_n[None, :])
+                s = s + (-slope * dist.to(tl.float32))
+            elif BIAS_KIND == 2:
+                b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
+                          + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
+                b_tile = tl.load(b_ptrs)
+                s = s + b_tile.to(tl.float32)
+            if NORM_KIND == 0:
                 m_new = tl.maximum(m_i, tl.max(s, axis=1))
                 alpha = tl.exp(m_i - m_new)
                 p     = tl.exp(s - m_new[:, None])
-            l_i   = alpha * l_i + tl.sum(p, axis=1)
-            acc   = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
-            m_i   = m_new
-        else:
-            # ----- ReLU attention -----
-            p   = tl.maximum(s, 0.0)
-            l_i = l_i + tl.sum(p, axis=1)
-            acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
+                l_i = alpha * l_i + tl.sum(p, axis=1)
+                acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
+                m_i = m_new
+            else:
+                p = tl.maximum(s, 0.0)
+                l_i = l_i + tl.sum(p, axis=1)
+                acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
+
+        # ----- LOOP 3: right boundary (apply SW mask + safe softmax) -----
+        for n_start in range(interior_hi, n_hi, BLOCK_N):
+            cur_n = n_start + offs_n
+            k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
+            v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
+            n_in_bounds = cur_n < N
+            k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            if ROPE_KIND == 1:
+                k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
+                k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k = (k.to(tl.float32) * k_cos.to(tl.float32)
+                     + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
+                     ).to(k.dtype)
+            s = tl.dot(q, tl.trans(k))
+            s = s * sm_scale
+            if BIAS_KIND == 1:
+                dist = tl.abs(offs_m[:, None] - cur_n[None, :])
+                s = s + (-slope * dist.to(tl.float32))
+            elif BIAS_KIND == 2:
+                b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
+                          + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
+                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
+                s = s + b_tile.to(tl.float32)
+            d = offs_m[:, None] - cur_n[None, :]
+            sw_mask = (d < WINDOW) & (d > -WINDOW)
+            s = tl.where(sw_mask, s, -float("inf"))
+            s = tl.where(n_in_bounds[None, :], s, -float("inf"))
+            if NORM_KIND == 0:
+                block_max  = tl.max(s, axis=1)
+                m_new      = tl.maximum(m_i, block_max)
+                all_masked = (block_max == float("-inf"))
+                alpha      = tl.where(all_masked, 1.0, tl.exp(m_i - m_new))
+                safe_m_new = tl.where(all_masked, tl.zeros_like(m_new), m_new)
+                p          = tl.exp(s - safe_m_new[:, None])
+                l_i = alpha * l_i + tl.sum(p, axis=1)
+                acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
+                m_i = m_new
+            else:
+                p = tl.maximum(s, 0.0)
+                l_i = l_i + tl.sum(p, axis=1)
+                acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
+    else:
+        # Dense / causal: single loop (MASK_KIND in {0, 1}); causal trims n_hi.
+        for n_start in range(n_lo, n_hi, BLOCK_N):
+            cur_n = n_start + offs_n
+            k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
+            v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
+            n_in_bounds = cur_n < N
+            k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
+            if ROPE_KIND == 1:
+                k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
+                k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
+                k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
+                k = (k.to(tl.float32) * k_cos.to(tl.float32)
+                     + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
+                     ).to(k.dtype)
+            s = tl.dot(q, tl.trans(k))
+            s = s * sm_scale
+            if BIAS_KIND == 1:
+                dist = tl.abs(offs_m[:, None] - cur_n[None, :])
+                s = s + (-slope * dist.to(tl.float32))
+            elif BIAS_KIND == 2:
+                b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
+                          + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
+                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
+                s = s + b_tile.to(tl.float32)
+            if MASK_KIND == 1:
+                causal_mask = offs_m[:, None] >= cur_n[None, :]
+                s = tl.where(causal_mask, s, -float("inf"))
+            s = tl.where(n_in_bounds[None, :], s, -float("inf"))
+            if NORM_KIND == 0:
+                m_new = tl.maximum(m_i, tl.max(s, axis=1))
+                alpha = tl.exp(m_i - m_new)
+                p     = tl.exp(s - m_new[:, None])
+                l_i   = alpha * l_i + tl.sum(p, axis=1)
+                acc   = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
+                m_i   = m_new
+            else:
+                p   = tl.maximum(s, 0.0)
+                l_i = l_i + tl.sum(p, axis=1)
+                acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
 
     # Final normalisation
     out = acc / tl.where(l_i == 0.0, 1.0, l_i)[:, None]

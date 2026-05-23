@@ -1,0 +1,1 @@
+ok torch.Size([2, 12, 4096, 64]) torch.float16 window= 256

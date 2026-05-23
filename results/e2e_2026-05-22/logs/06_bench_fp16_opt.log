@@ -1,0 +1,80 @@
+# 2026-05-23 02:10:35
+# device=NVIDIA GeForce RTX 3090 dtype=float16
+bert-base  dense  512  naive  0.226  68.1  14.23
+bert-base  dense  512  sdpa  0.080  20.2  40.33
+bert-base  dense  512  flash_ref  0.099  20.1  32.43
+bert-base  dense  512  attnfuse  0.098  20.1  32.77
+bert-base  dense  1024  naive  0.783  224.1  16.45
+bert-base  dense  1024  sdpa  0.230  32.3  55.92
+bert-base  dense  1024  flash_ref  0.284  32.1  45.43
+bert-base  dense  1024  attnfuse  0.275  32.1  46.78
+bert-base  dense  2048  naive  4.813  824.1  10.71
+bert-base  dense  2048  sdpa  0.781  56.5  65.97
+bert-base  dense  2048  flash_ref  0.943  56.1  54.65
+bert-base  dense  2048  attnfuse  0.929  56.1  55.49
+bert-base  dense  4096  naive  30.978  3176.1  6.65
+bert-base  dense  4096  sdpa  5.416  104.9  38.07
+bert-base  dense  4096  flash_ref  8.373  104.1  24.62
+bert-base  dense  4096  attnfuse  3.955  104.1  52.13
+bert-base  sliding_window  512  naive  0.376  71.3  8.57
+/home/ashiqur/Documents/DSP_Project/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+bert-base  sliding_window  512  sdpa  0.378  71.3  8.53
+bert-base  sliding_window  512  attnfuse  0.092  20.1  35.15
+bert-base  sliding_window  1024  naive  1.368  233.1  9.42
+/home/ashiqur/Documents/DSP_Project/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+bert-base  sliding_window  1024  sdpa  1.369  233.1  9.41
+bert-base  sliding_window  1024  attnfuse  0.175  32.1  73.80
+bert-base  sliding_window  2048  naive  8.319  860.1  6.20
+bert-base  sliding_window  2048  sdpa  8.305  860.1  6.21
+bert-base  sliding_window  2048  attnfuse  0.294  56.1  175.37
+bert-base  sliding_window  4096  naive  26.542  3320.2  7.77
+bert-base  sliding_window  4096  sdpa  26.580  3320.2  7.76
+bert-base  sliding_window  4096  attnfuse  0.585  104.1  352.59
+gpt2-small  causal  512  naive  0.383  68.4  8.41
+gpt2-small  causal  512  sdpa  0.059  20.2  54.24
+gpt2-small  causal  512  flash_ref  0.071  20.1  45.59
+gpt2-small  causal  512  attnfuse  0.093  20.1  34.57
+gpt2-small  causal  1024  naive  1.313  225.1  9.82
+gpt2-small  causal  1024  sdpa  0.168  32.3  76.73
+gpt2-small  causal  1024  flash_ref  0.204  32.1  63.07
+gpt2-small  causal  1024  attnfuse  0.199  32.1  64.86
+gpt2-small  causal  2048  naive  8.135  829.1  6.34
+gpt2-small  causal  2048  sdpa  0.474  56.5  108.71
+gpt2-small  causal  2048  flash_ref  0.573  56.1  89.88
+gpt2-small  causal  2048  attnfuse  0.568  56.1  90.69
+gpt2-small  causal  4096  naive  25.951  3192.1  7.94
+gpt2-small  causal  4096  sdpa  1.704  104.9  120.99
+gpt2-small  causal  4096  flash_ref  1.993  104.1  103.46
+gpt2-small  causal  4096  attnfuse  1.974  104.1  104.42
+gpt2-small  sliding_window  512  naive  0.396  71.3  8.13
+/home/ashiqur/Documents/DSP_Project/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+gpt2-small  sliding_window  512  sdpa  0.396  71.3  8.13
+gpt2-small  sliding_window  512  attnfuse  0.088  20.1  36.58
+gpt2-small  sliding_window  1024  naive  1.423  233.1  9.05
+gpt2-small  sliding_window  1024  sdpa  1.368  233.1  9.42
+gpt2-small  sliding_window  1024  attnfuse  0.176  32.1  73.37
+gpt2-small  sliding_window  2048  naive  8.350  860.1  6.17
+gpt2-small  sliding_window  2048  sdpa  8.332  860.1  6.19
+gpt2-small  sliding_window  2048  attnfuse  0.290  56.1  177.85
+gpt2-small  sliding_window  4096  naive  26.610  3320.2  7.75
+gpt2-small  sliding_window  4096  sdpa  26.623  3320.2  7.74
+gpt2-small  sliding_window  4096  attnfuse  0.582  104.1  354.14
+gpt2-small  causal_alibi  512  naive  0.508  71.6  6.34
+gpt2-small  causal_alibi  512  sdpa  0.511  71.6  6.30
+gpt2-small  causal_alibi  512  attnfuse  0.094  20.1  34.19
+gpt2-small  causal_alibi  1024  naive  1.769  245.0  7.28
+/home/ashiqur/Documents/DSP_Project/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+gpt2-small  causal_alibi  1024  sdpa  1.783  245.0  7.23
+gpt2-small  causal_alibi  1024  attnfuse  0.218  32.1  59.21
+gpt2-small  causal_alibi  2048  naive  11.198  917.1  4.60
+gpt2-small  causal_alibi  2048  sdpa  11.234  917.1  4.59
+gpt2-small  causal_alibi  2048  attnfuse  0.603  56.1  85.45
+gpt2-small  causal_alibi  4096  naive  36.625  3568.2  5.63
+gpt2-small  causal_alibi  4096  sdpa  36.652  3568.2  5.62
+gpt2-small  causal_alibi  4096  attnfuse  2.114  104.1  97.54
+
+[ok] wrote results/e2e_2026-05-22/eval_fp16_opt.csv

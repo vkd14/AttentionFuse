@@ -1,0 +1,381 @@
+%% ============================================================
+%%  AttnFuse — Speaker Notes for the Final Project Presentation
+%%  One section per slide in AttnFuse_slides.pptx
+%%  Written in plain, beginner-friendly language.
+%% ============================================================
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,
+            citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{titlesec}
+
+\titleformat{\section}{\Large\bfseries\color{blue!60!black}}{Slide \thesection.}{0.6em}{}
+
+\definecolor{codebg}{HTML}{F4F4F4}
+\definecolor{tipbg}{HTML}{FFF5E1}
+\lstset{
+  language=Python,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{black!20},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+}
+
+\newcommand{\tip}[1]{%
+  \par\smallskip
+  \noindent\fcolorbox{orange!50}{tipbg}{%
+    \parbox{0.96\linewidth}{\textbf{What to say out loud:} #1}}%
+  \par\smallskip
+}
+
+\title{\textbf{AttnFuse — Speaker Notes}\\[4pt]
+       \large Final Project Presentation, CS 790/657}
+\author{Varun Kumar Dasoju}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textit{This document is your script. Each section maps one-to-one to a slide
+in \texttt{AttnFuse\_slides.pptx}. The orange boxes are exactly what to say out
+loud; the text above them gives you background you can paraphrase if asked.
+The whole talk runs comfortably in 10--12 minutes.}
+
+%% =============================================================
+\section{Title — ``AttnFuse''}
+%% =============================================================
+
+\tip{Hi everyone. My project is called AttnFuse. It is a small programming
+language for attention, the most expensive part of modern AI models like ChatGPT.
+You write the attention as a short Python recipe, and AttnFuse turns it into
+a fast GPU program automatically. Over the next ten minutes I will tell you
+why this matters, how it works, and how fast it ended up being.}
+
+%% =============================================================
+\section{What Is This Project About?}
+%% =============================================================
+
+The audience may have no idea what ``attention'' means yet. Don't define it
+here. Just give them the one-sentence pitch and a reason to care.
+
+\tip{Big AI models read text the way you read a sentence: they figure out
+which words matter most. The piece of the model that does that is called
+\textit{attention}, and it is the slowest part of the whole system. Today,
+if a researcher wants to invent a new flavour of attention --- say, one that
+only looks at the last 256 words --- they have to write hundreds of lines
+of low-level GPU code, which takes weeks. AttnFuse is a small language that
+lets you describe the new flavour in five lines of Python, and it spits out
+the fast GPU code for you automatically.}
+
+%% =============================================================
+\section{What Is ``Attention'' in AI? — A Simple Picture}
+%% =============================================================
+
+Use the highlighter analogy. Don't get into math yet.
+
+\tip{Imagine you are reading the sentence ``She bought a red apple.''
+When you reach the word ``apple,'' your brain glances back at ``red'' to
+understand which kind of apple. An AI model does exactly the same thing:
+for every word it is currently reading, it glances back at all the other
+words and gives each one a little score that says ``how relevant are
+you to me right now?'' Those scores form a big grid --- one row per word
+you are reading, one column per word you are looking at. The model then
+blends all the words together, weighted by those scores. That blending
+is what we call \textit{attention}.}
+
+%% =============================================================
+\section{The Math, Stripped Down}
+%% =============================================================
+
+This is the only math slide. Keep it brief; don't blackboard derivations.
+
+\tip{Under the hood, every word becomes three short lists of numbers.
+Think of them as a question, a label, and a piece of info that the word
+carries. The first matrix multiply --- Q times K-transpose --- asks every
+question against every label, and gives back a giant scoreboard. Softmax
+turns the raw scores into percentages that add up to one. Then a second
+matrix multiply uses those percentages to mix the pieces of info together.
+That's the whole recipe. Every fancy variant of attention --- causal,
+sliding-window, ALiBi, RoPE --- is just a small tweak on this scaffold.}
+
+%% =============================================================
+\section{Why Is Attention Slow?}
+%% =============================================================
+
+Drive home the quadratic cost. People who have heard the words ``context
+length'' should now understand why scaling it up is so painful.
+
+\tip{Here is the catch. If your text is N words long, the scoreboard has
+N times N entries. At 4096 words --- a fairly short article --- that's
+already sixteen million entries per attention head, per layer. A real
+model has dozens of heads and dozens of layers, so you end up with tens
+of billions of entries. The GPU is fast at math, but it is much slower at
+moving data in and out of memory. Writing that giant scoreboard out and
+reading it back in is what kills the speed. Standard PyTorch makes it
+worse by launching five separate GPU programs in a row --- one for the
+matmul, one for the scaling, one for the mask, one for softmax, one for
+the final blend. AttnFuse fuses all of those into one.}
+
+%% =============================================================
+\section{FlashAttention: The Hand-Optimised Hero}
+%% =============================================================
+
+Acknowledge prior work clearly. This is what we are inspired by but not
+just copying.
+
+\tip{In 2022, Tri Dao published FlashAttention. The clever idea was: never
+write the full scoreboard. Instead, process the input in small tiles, keep
+a running max and a running sum on the GPU's tiny fast memory, and update
+them as each tile arrives. The math comes out exactly the same, but the
+big slow scoreboard never gets written down. FlashAttention is two to four
+times faster than naive PyTorch, and it uses a tiny fraction of the memory.
+The downside: it is hand-written CUDA, and it only handles dense and causal
+attention. Every new attention shape needs a brand-new hand-written kernel.}
+
+%% =============================================================
+\section{The Real Problem}
+%% =============================================================
+
+This is where the project's motivation crystallises.
+
+\tip{Researchers keep inventing new attention shapes. Mistral uses a
+sliding window so each word only looks at the last 256 words. BLOOM
+uses ALiBi, which adds a penalty for far-away words. LLaMA uses RoPE,
+which rotates the vectors based on their position. BigBird uses block
+sparse patterns. PyTorch's official fast path only knows about dense
+and causal --- everything else silently falls back to the slow N-squared
+code, which is sometimes hundreds of times slower. So researchers face
+a brutal choice: write CUDA for a few weeks, or accept terrible
+performance. There is nothing in the middle. That gap is exactly what
+AttnFuse fills.}
+
+%% =============================================================
+\section{AttnFuse — The Idea}
+%% =============================================================
+
+Now the elevator pitch in concrete terms.
+
+\tip{AttnFuse is a small language embedded inside Python. You describe
+your attention shape as a short function using building blocks like
+\texttt{causal}, \texttt{sliding\_window}, \texttt{alibi}, \texttt{rope},
+and \texttt{softmax}. Our compiler reads that description, figures out
+which steps fuse together, picks good GPU tile sizes, and generates one
+fused GPU program for the whole thing. The user never writes CUDA or
+Triton. The result runs at roughly the same speed as the hand-written
+FlashAttention for the cases FlashAttention covers, and dozens of times
+faster than PyTorch for the cases it doesn't.}
+
+%% =============================================================
+\section{What the User Writes (the Whole Thing!)}
+%% =============================================================
+
+Walk the audience through the five lines on the slide.
+
+\tip{Here is what the user actually writes. They decorate a function with
+\texttt{@af.attention}. Inside, they call \texttt{scaled\_dot\_product} on
+Q and K to get the scores, then \texttt{causal} to mask out future words,
+then \texttt{alibi} to add the distance penalty, then \texttt{softmax} to
+turn scores into percentages, and finally they multiply by V. That is the
+whole thing. The first time this function gets called, AttnFuse traces it,
+compiles a fused Triton kernel, and caches it. Every later call is just a
+GPU launch --- under 200 microseconds of overhead.}
+
+%% =============================================================
+\section{The Building Blocks (Combinators)}
+%% =============================================================
+
+Briefly enumerate the seven combinators. The audience should walk away
+believing this is genuinely composable.
+
+\tip{We have seven building blocks, grouped into four categories.
+\textit{Scoring}: plain scaled dot product, or a fused RoPE version that
+rotates the vectors as it scores them. \textit{Masking}: causal, which
+hides future words, and sliding-window, which only looks back a fixed
+distance. \textit{Bias}: ALiBi, the built-in distance penalty, or
+additive bias, where you pass in any bias tensor you like.
+\textit{Normalisation}: standard softmax, or ReLU attention for
+researchers experimenting with simpler activations. You can snap these
+together in any combination, and the compiler handles the rest.}
+
+%% =============================================================
+\section{How the Compiler Works}
+%% =============================================================
+
+Walk through the four-pass pipeline. Don't get academic about IR design;
+just say what each pass does.
+
+\tip{Behind the scenes there are four passes. \textit{Trace} runs the
+user's Python function once with fake symbolic tensors, just to capture
+the structure --- nothing actually runs on the GPU yet. \textit{Fuse}
+recognises that score, mask, bias, softmax, and the final blend all
+belong in one loop. \textit{Tile} picks the block sizes for the GPU,
+using a small hardware-specific lookup table we tuned on the RTX 3090.
+\textit{Lower} flattens the graph into a tile-loop record.
+\textit{Codegen} emits a single Triton source file. Triton's just-in-time
+compiler then turns that into the actual GPU machine code. The whole
+thing gets cached by a hash of the graph, so reusing the same shape
+costs nothing on the second call.}
+
+%% =============================================================
+\section{One Kernel, Many Variants}
+%% =============================================================
+
+This is the design trick that makes the project tractable. Emphasise
+``zero runtime branching.''
+
+\tip{Here is the design choice I am most proud of. Instead of generating
+one fresh kernel per variant, we wrote one big templated kernel that
+carries compile-time switches: which mask, which bias, which normaliser,
+RoPE on or off. Triton's JIT is smart enough to bake those switches in
+at compile time and delete the dead code paths. So at runtime, there is
+not a single branch inside the hot loop --- the GPU just sees the right
+specialised binary for whichever combination you asked for. Adding a new
+combinator is a few lines of code-generation, not a new kernel.}
+
+%% =============================================================
+\section{The Magic Inside: Online Softmax}
+%% =============================================================
+
+Explain online softmax in words. Don't write the equations on the board
+unless asked.
+
+\tip{This is the trick that lets us reproduce FlashAttention's speed.
+The naive softmax wants the whole row of scores in front of it before
+it can normalise. With four thousand columns that is impossible to fit
+on the GPU's tiny fast memory. The online version cheats: it walks the
+row tile by tile, keeping just two running numbers per row --- the
+biggest score seen so far, and a running sum. When a new tile brings a
+bigger score, we rescale the old partial answer to match. At the end
+of the loop you get the exact same numbers as the naive version --- not
+an approximation --- but you never store the giant scoreboard. Memory
+goes from N-squared to N.}
+
+%% =============================================================
+\section{Our Novel Trick — Fused RoPE}
+%% =============================================================
+
+Emphasise that this is genuinely new --- not just an implementation of
+something published.
+
+\tip{RoPE, or Rotary Position Embedding, is the way LLaMA and Mistral
+encode the position of each word. Conceptually you rotate Q and K by
+an angle that depends on where the word sits in the sentence. The way
+everyone does this today is to rotate Q and K in two separate small
+GPU programs, write the rotated versions back to slow memory, and
+then run the attention kernel on top. We fold the rotation into the
+attention kernel itself: rotate Q once before the inner loop, rotate
+each tile of K right after we load it. Everything stays in fast
+registers --- no extra trips to slow memory. The result is between
+eighteen percent and two-and-a-third times faster, depending on the
+sequence length. As far as I can tell, this is the first
+compiler-generated fused RoPE; the few existing fused implementations
+are hand-written.}
+
+%% =============================================================
+\section{Headline Results}
+%% =============================================================
+
+This is the slide that decides whether the project ``looks good.''
+Read the numbers exactly and call out the punchline.
+
+\tip{Now the numbers, all measured on an RTX 3090 with sixteen-bit floats
+at a four thousand ninety six token sequence length. For dense attention
+we get fifty-nine teraflops, PyTorch's SDPA gets seventy --- about
+eighty-five percent of the hand-tuned CUDA. For causal it is one hundred
+and five versus one hundred and twenty-two --- eighty-six percent. So
+for the shapes PyTorch already accelerates, we are competitive. The
+interesting numbers are the next two. For sliding-window we get two
+hundred and ninety-eight teraflops versus PyTorch's seven point eight
+--- a thirty-eight times speedup. For causal-plus-ALiBi we get ninety-eight
+versus five point six --- seventeen times speedup. AttnFuse is the
+only sub-quadratic option for these shapes without writing custom CUDA.}
+
+%% =============================================================
+\section{Memory + Multi-Dtype}
+%% =============================================================
+
+Hit the memory savings and the dtype coverage together.
+
+\tip{The other big win is memory. At four thousand tokens, the naive
+PyTorch attention allocates three point two gigabytes of GPU memory
+just for the scoreboard; AttnFuse uses two hundred megabytes --- about
+thirty-two times less. This is the same memory savings FlashAttention
+gives you, but you get it automatically for any user-written variant.
+We also run on three precisions: sixteen-bit float, sixteen-bit brain
+float, and full thirty-two-bit float, each with its own tile config.
+In thirty-two bit, PyTorch loses its flash path and falls back to
+slow code; AttnFuse stays fast and ends up three-point-two times
+faster than SDPA in that regime. All of this is verified by twenty-five
+GPU unit tests across every variant.}
+
+%% =============================================================
+\section{Costs, Limitations, and What We Built}
+%% =============================================================
+
+Honest closing slide. Be upfront about what's missing; then the summary.
+
+\tip{Nothing is free. The first time you call a new attention shape,
+the compile takes about a second and a half. After that the compiled
+kernel is cached forever --- subsequent calls are under two hundred
+microseconds. We do only the forward pass right now; the backward pass
+for training is future work. We are single-GPU; we don't support block
+sparse patterns yet, though the IR has a slot for them. To summarise:
+seven combinators, a two-level IR, a four-pass compiler, the fused RoPE
+kernel, twenty-five GPU tests, three precisions, four sequence lengths,
+three baselines, and full evaluation. The bottom line is a declarative
+DSL that matches FlashAttention 2 within fifteen percent on the cases
+PyTorch already accelerates, and beats it seventeen to thirty-eight
+times on the cases it doesn't. Thank you --- happy to take questions.}
+
+%% =============================================================
+\section*{Appendix: Likely Questions \& Short Answers}
+%% =============================================================
+
+\paragraph{Q. Why Triton, not CUDA?}
+Triton is a higher-level language than CUDA. We can generate it from a
+template without dealing with PTX assembly or shared-memory bank
+conflicts. The cost is roughly fifteen percent versus hand-tuned CUDA,
+which is acceptable for kernel generality.
+
+\paragraph{Q. What is the memory cost of online softmax?}
+Per row, only the running max and the running sum --- two numbers in
+registers. Nothing extra in HBM. That is what reduces $O(N^2)$ memory
+to $O(N)$.
+
+\paragraph{Q. How is the cache key computed?}
+A SHA-1 hash of the high-level graph's structural signature, including
+the rope flag, mask kind, bias kind, head dim, and dtype. Two graphs
+that hash the same share a compiled kernel.
+
+\paragraph{Q. What about training (backward)?}
+Not implemented. The backward pass is a separate kernel with different
+tile scheduling, as in FlashAttention-2. Adding it would be the
+natural next milestone.
+
+\paragraph{Q. Did you profile with Nsight Compute?}
+\texttt{ncu} was not available on the evaluation host. The TFLOPS and
+HBM bandwidth in the roofline are computed analytically from measured
+latency with the correct FLOP and traffic formulas per variant. We note
+this in the report.
+
+\paragraph{Q. Is this faster than xFormers or Liger Kernel?}
+For dense and causal, those libraries match SDPA. AttnFuse's edge is
+covering combinations they don't ship --- sliding-window, ALiBi,
+fused RoPE, custom additive bias --- without writing a new kernel per
+combination.
+
+\end{document}

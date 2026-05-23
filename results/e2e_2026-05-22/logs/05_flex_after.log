@@ -1,0 +1,36 @@
+# Flex bench  device=NVIDIA GeForce RTX 3090
+# torch=2.5.1+cu121  2026-05-23 02:08:43
+dense  512  attnfuse  0.097  33.11  1.00 
+dense  512  flex  0.137  23.48  0.71 
+causal  512  attnfuse  0.088  36.79  1.00 
+causal  512  flex  0.103  31.15  0.85 
+sw_w256  512  attnfuse  0.093  34.57  1.00 
+sw_w256  512  flex  0.104  30.84  0.89 
+causal_alibi  512  attnfuse  0.094  34.38  1.00 
+causal_alibi  512  flex  0.105  30.54  0.89 
+dense  1024  attnfuse  0.275  46.78  1.00 
+dense  1024  flex  0.225  57.33  1.23 
+causal  1024  attnfuse  0.206  62.45  1.00 
+causal  1024  flex  0.173  74.46  1.19 
+sw_w256  1024  attnfuse  0.173  37.23  1.00 
+sw_w256  1024  flex  0.146  44.00  1.18 
+causal_alibi  1024  attnfuse  0.217  59.35  1.00 
+causal_alibi  1024  flex  0.178  72.32  1.22 
+dense  2048  attnfuse  1.022  50.43  1.00 
+dense  2048  flex  0.840  61.38  1.22 
+causal  2048  attnfuse  0.618  83.33  1.00 
+causal  2048  flex  0.523  98.50  1.18 
+sw_w256  2048  attnfuse  0.314  40.99  1.00 
+sw_w256  2048  flex  0.275  46.86  1.14 
+causal_alibi  2048  attnfuse  0.649  79.45  1.00 
+causal_alibi  2048  flex  0.538  95.87  1.21 
+dense  4096  attnfuse  3.524  58.50  1.00 
+dense  4096  flex  2.913  70.77  1.21 
+causal  4096  attnfuse  1.949  105.79  1.00 
+causal  4096  flex  1.673  123.21  1.16 
+sw_w256  4096  attnfuse  0.560  46.01  1.00 
+sw_w256  4096  flex  0.483  53.32  1.16 
+causal_alibi  4096  attnfuse  2.061  100.01  1.00 
+causal_alibi  4096  flex  1.698  121.43  1.21 
+
+[ok] wrote results/e2e_2026-05-22/flex_bench_after.csv
