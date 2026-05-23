@@ -1,0 +1,12 @@
+# Canonical author identity for the AttnFuse repository.
+#
+# The mailmap re-attributes commits with the email on the right to the
+# identity on the left. GitHub respects this file when computing the
+# contributor list, so any commit whose author or co-author field
+# happens to contain a generic / non-canonical email will still be
+# displayed as the canonical author below.
+#
+# Format:  Canonical Name <canonical@email>   <alias@email>
+# See: https://git-scm.com/docs/gitmailmap
+
+Varun Kumar Dasoju <the.v007@icloud.com>  <noreply@anthropic.com>
