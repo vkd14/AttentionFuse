@@ -1,0 +1,296 @@
+# Config sweep  device=NVIDIA GeForce RTX 3090
+# torch=2.5.1+cu121  2026-05-23 02:41:01
+
+=== dense          N=512 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.0932 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.0911 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.0911 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.1219 ms
+  BM= 64 BN=128 warps=4 stages=2  0.0942 ms
+  BM= 64 BN=128 warps=8 stages=2  0.1434 ms
+  BM=128 BN= 32 warps=4 stages=4  0.0963 ms
+  BM=128 BN= 32 warps=8 stages=3  0.0932 ms
+  BM=128 BN= 64 warps=4 stages=3  0.0963 ms
+  BM=128 BN= 64 warps=8 stages=2  0.0942 ms
+  BM=128 BN=128 warps=4 stages=2  0.0983 ms
+  BM=128 BN=128 warps=8 stages=2  0.0942 ms
+  BM=256 BN= 32 warps=8 stages=2  0.1403 ms
+  BM=256 BN= 64 warps=8 stages=2  0.1311 ms
+  BM=256 BN= 64 warps=4 stages=2  0.1777 ms
+
+=== dense          N=1024 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.2437 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.2427 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.2437 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.4506 ms
+  BM= 64 BN=128 warps=4 stages=2  0.2529 ms
+  BM= 64 BN=128 warps=8 stages=2  0.5315 ms
+  BM=128 BN= 32 warps=4 stages=4  0.2775 ms
+  BM=128 BN= 32 warps=8 stages=3  0.2171 ms *
+  BM=128 BN= 64 warps=4 stages=3  0.2463 ms
+  BM=128 BN= 64 warps=8 stages=2  0.2058 ms *
+  BM=128 BN=128 warps=4 stages=2  0.2509 ms
+  BM=128 BN=128 warps=8 stages=2  0.2499 ms
+  BM=256 BN= 32 warps=8 stages=2  0.3400 ms
+  BM=256 BN= 64 warps=8 stages=2  0.3174 ms
+  BM=256 BN= 64 warps=4 stages=2  0.7690 ms
+
+=== dense          N=2048 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.8684 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.8054 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.8479 ms
+  BM= 64 BN= 64 warps=8 stages=2  1.5780 ms
+  BM= 64 BN=128 warps=4 stages=2  0.8842 ms
+  BM= 64 BN=128 warps=8 stages=2  1.8022 ms
+  BM=128 BN= 32 warps=4 stages=4  0.9252 ms
+  BM=128 BN= 32 warps=8 stages=3  0.8131 ms
+  BM=128 BN= 64 warps=4 stages=3  0.9339 ms
+  BM=128 BN= 64 warps=8 stages=2  0.8305 ms
+  BM=128 BN=128 warps=4 stages=2  0.9308 ms
+  BM=128 BN=128 warps=8 stages=2  0.9595 ms
+  BM=256 BN= 32 warps=8 stages=2  1.0931 ms
+  BM=256 BN= 64 warps=8 stages=2  1.0158 ms
+  BM=256 BN= 64 warps=4 stages=2  2.6747 ms
+
+=== dense          N=4096 ===
+  BM= 64 BN= 32 warps=4 stages=3  3.3751 ms *
+  BM= 64 BN= 32 warps=4 stages=4  3.3761 ms
+  BM= 64 BN= 64 warps=4 stages=3  3.3434 ms *
+  BM= 64 BN= 64 warps=8 stages=2  6.2833 ms
+  BM= 64 BN=128 warps=4 stages=2  3.4304 ms
+  BM= 64 BN=128 warps=8 stages=2  7.1475 ms
+  BM=128 BN= 32 warps=4 stages=4  3.5697 ms
+  BM=128 BN= 32 warps=8 stages=3  3.2266 ms *
+  BM=128 BN= 64 warps=4 stages=3  3.5139 ms
+  BM=128 BN= 64 warps=8 stages=2  3.1109 ms *
+  BM=128 BN=128 warps=4 stages=2  3.4888 ms
+  BM=128 BN=128 warps=8 stages=2  3.6291 ms
+  BM=256 BN= 32 warps=8 stages=2  4.3223 ms
+  BM=256 BN= 64 warps=8 stages=2  4.0504 ms
+  BM=256 BN= 64 warps=4 stages=2  10.3485 ms
+
+=== causal         N=512 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.0932 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.0881 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.0932 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.0922 ms
+  BM= 64 BN=128 warps=4 stages=2  0.0932 ms
+  BM= 64 BN=128 warps=8 stages=2  0.0932 ms
+  BM=128 BN= 32 warps=4 stages=4  0.0922 ms
+  BM=128 BN= 32 warps=8 stages=3  0.0932 ms
+  BM=128 BN= 64 warps=4 stages=3  0.0932 ms
+  BM=128 BN= 64 warps=8 stages=2  0.0947 ms
+  BM=128 BN=128 warps=4 stages=2  0.0932 ms
+  BM=128 BN=128 warps=8 stages=2  0.0932 ms
+  BM=256 BN= 32 warps=8 stages=2  0.0922 ms
+  BM=256 BN= 64 warps=8 stages=2  0.0932 ms
+  BM=256 BN= 64 warps=4 stages=2  0.0942 ms
+
+=== causal         N=1024 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.1362 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.1357 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.1372 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.1362 ms
+  BM= 64 BN=128 warps=4 stages=2  0.1362 ms
+  BM= 64 BN=128 warps=8 stages=2  0.1382 ms
+  BM=128 BN= 32 warps=4 stages=4  0.1357 ms
+  BM=128 BN= 32 warps=8 stages=3  0.1367 ms
+  BM=128 BN= 64 warps=4 stages=3  0.1372 ms
+  BM=128 BN= 64 warps=8 stages=2  0.1372 ms
+  BM=128 BN=128 warps=4 stages=2  0.1372 ms
+  BM=128 BN=128 warps=8 stages=2  0.1388 ms
+  BM=256 BN= 32 warps=8 stages=2  0.1357 ms
+  BM=256 BN= 64 warps=8 stages=2  0.1377 ms
+  BM=256 BN= 64 warps=4 stages=2  0.1377 ms
+
+=== causal         N=2048 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.4526 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.4659 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.4608 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.4756 ms
+  BM= 64 BN=128 warps=4 stages=2  0.4562 ms
+  BM= 64 BN=128 warps=8 stages=2  0.4675 ms
+  BM=128 BN= 32 warps=4 stages=4  0.4690 ms
+  BM=128 BN= 32 warps=8 stages=3  0.4608 ms
+  BM=128 BN= 64 warps=4 stages=3  0.4685 ms
+  BM=128 BN= 64 warps=8 stages=2  0.4582 ms
+  BM=128 BN=128 warps=4 stages=2  0.4695 ms
+  BM=128 BN=128 warps=8 stages=2  0.4746 ms
+  BM=256 BN= 32 warps=8 stages=2  0.4562 ms
+  BM=256 BN= 64 warps=8 stages=2  0.4731 ms
+  BM=256 BN= 64 warps=4 stages=2  0.4582 ms
+
+=== causal         N=4096 ===
+  BM= 64 BN= 32 warps=4 stages=3  1.8063 ms *
+  BM= 64 BN= 32 warps=4 stages=4  1.8263 ms
+  BM= 64 BN= 64 warps=4 stages=3  1.8156 ms
+  BM= 64 BN= 64 warps=8 stages=2  1.8099 ms
+  BM= 64 BN=128 warps=4 stages=2  1.8120 ms
+  BM= 64 BN=128 warps=8 stages=2  1.8094 ms
+  BM=128 BN= 32 warps=4 stages=4  1.7987 ms *
+  BM=128 BN= 32 warps=8 stages=3  1.8099 ms
+  BM=128 BN= 64 warps=4 stages=3  1.8068 ms
+  BM=128 BN= 64 warps=8 stages=2  1.8115 ms
+  BM=128 BN=128 warps=4 stages=2  1.8207 ms
+  BM=128 BN=128 warps=8 stages=2  1.8166 ms
+  BM=256 BN= 32 warps=8 stages=2  1.8161 ms
+  BM=256 BN= 64 warps=8 stages=2  1.8074 ms
+  BM=256 BN= 64 warps=4 stages=2  1.8125 ms
+
+=== sw_w256        N=512 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.0932 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.0916 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.0911 ms *
+  BM= 64 BN= 64 warps=8 stages=2  0.0906 ms *
+  BM= 64 BN=128 warps=4 stages=2  0.1004 ms
+  BM= 64 BN=128 warps=8 stages=2  0.0896 ms *
+  BM=128 BN= 32 warps=4 stages=4  0.0922 ms
+  BM=128 BN= 32 warps=8 stages=3  0.0932 ms
+  BM=128 BN= 64 warps=4 stages=3  0.1004 ms
+  BM=128 BN= 64 warps=8 stages=2  0.0922 ms
+  BM=128 BN=128 warps=4 stages=2  0.0922 ms
+  BM=128 BN=128 warps=8 stages=2  0.0932 ms
+  BM=256 BN= 32 warps=8 stages=2  0.0922 ms
+  BM=256 BN= 64 warps=8 stages=2  0.0932 ms
+  BM=256 BN= 64 warps=4 stages=2  0.0922 ms
+
+=== sw_w256        N=1024 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.1147 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.1137 ms *
+  BM= 64 BN= 64 warps=4 stages=3  0.1137 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.1147 ms
+  BM= 64 BN=128 warps=4 stages=2  0.1157 ms
+  BM= 64 BN=128 warps=8 stages=2  0.1147 ms
+  BM=128 BN= 32 warps=4 stages=4  0.1147 ms
+  BM=128 BN= 32 warps=8 stages=3  0.1147 ms
+  BM=128 BN= 64 warps=4 stages=3  0.1137 ms
+  BM=128 BN= 64 warps=8 stages=2  0.1137 ms
+  BM=128 BN=128 warps=4 stages=2  0.1147 ms
+  BM=128 BN=128 warps=8 stages=2  0.1147 ms
+  BM=256 BN= 32 warps=8 stages=2  0.1152 ms
+  BM=256 BN= 64 warps=8 stages=2  0.1157 ms
+  BM=256 BN= 64 warps=4 stages=2  0.1147 ms
+
+=== sw_w256        N=2048 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.2243 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.2243 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.2232 ms *
+  BM= 64 BN= 64 warps=8 stages=2  0.2232 ms
+  BM= 64 BN=128 warps=4 stages=2  0.2232 ms
+  BM= 64 BN=128 warps=8 stages=2  0.2232 ms
+  BM=128 BN= 32 warps=4 stages=4  0.2253 ms
+  BM=128 BN= 32 warps=8 stages=3  0.2253 ms
+  BM=128 BN= 64 warps=4 stages=3  0.2243 ms
+  BM=128 BN= 64 warps=8 stages=2  0.2243 ms
+  BM=128 BN=128 warps=4 stages=2  0.2232 ms
+  BM=128 BN=128 warps=8 stages=2  0.2232 ms
+  BM=256 BN= 32 warps=8 stages=2  0.2232 ms
+  BM=256 BN= 64 warps=8 stages=2  0.2248 ms
+  BM=256 BN= 64 warps=4 stages=2  0.2263 ms
+
+=== sw_w256        N=4096 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.4449 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.4710 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.4536 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.4680 ms
+  BM= 64 BN=128 warps=4 stages=2  0.4490 ms
+  BM= 64 BN=128 warps=8 stages=2  0.4710 ms
+  BM=128 BN= 32 warps=4 stages=4  0.4506 ms
+  BM=128 BN= 32 warps=8 stages=3  0.4695 ms
+  BM=128 BN= 64 warps=4 stages=3  0.4526 ms
+  BM=128 BN= 64 warps=8 stages=2  0.4659 ms
+  BM=128 BN=128 warps=4 stages=2  0.4649 ms
+  BM=128 BN=128 warps=8 stages=2  0.4536 ms
+  BM=256 BN= 32 warps=8 stages=2  0.4680 ms
+  BM=256 BN= 64 warps=8 stages=2  0.4495 ms
+  BM=256 BN= 64 warps=4 stages=2  0.4680 ms
+
+=== causal_alibi   N=512 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.0932 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.0937 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.0911 ms *
+  BM= 64 BN= 64 warps=8 stages=2  0.0901 ms *
+  BM= 64 BN=128 warps=4 stages=2  0.0922 ms
+  BM= 64 BN=128 warps=8 stages=2  0.0942 ms
+  BM=128 BN= 32 warps=4 stages=4  0.0942 ms
+  BM=128 BN= 32 warps=8 stages=3  0.0942 ms
+  BM=128 BN= 64 warps=4 stages=3  0.0947 ms
+  BM=128 BN= 64 warps=8 stages=2  0.0922 ms
+  BM=128 BN=128 warps=4 stages=2  0.0932 ms
+  BM=128 BN=128 warps=8 stages=2  0.0911 ms
+  BM=256 BN= 32 warps=8 stages=2  0.0922 ms
+  BM=256 BN= 64 warps=8 stages=2  0.0901 ms
+  BM=256 BN= 64 warps=4 stages=2  0.0906 ms
+
+=== causal_alibi   N=1024 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.1352 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.1362 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.1362 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.1372 ms
+  BM= 64 BN=128 warps=4 stages=2  0.1357 ms
+  BM= 64 BN=128 warps=8 stages=2  0.1352 ms
+  BM=128 BN= 32 warps=4 stages=4  0.1367 ms
+  BM=128 BN= 32 warps=8 stages=3  0.1352 ms
+  BM=128 BN= 64 warps=4 stages=3  0.1362 ms
+  BM=128 BN= 64 warps=8 stages=2  0.1362 ms
+  BM=128 BN=128 warps=4 stages=2  0.1372 ms
+  BM=128 BN=128 warps=8 stages=2  0.1362 ms
+  BM=256 BN= 32 warps=8 stages=2  0.1362 ms
+  BM=256 BN= 64 warps=8 stages=2  0.1362 ms
+  BM=256 BN= 64 warps=4 stages=2  0.1352 ms
+
+=== causal_alibi   N=2048 ===
+  BM= 64 BN= 32 warps=4 stages=3  0.4495 ms *
+  BM= 64 BN= 32 warps=4 stages=4  0.4731 ms
+  BM= 64 BN= 64 warps=4 stages=3  0.4557 ms
+  BM= 64 BN= 64 warps=8 stages=2  0.4690 ms
+  BM= 64 BN=128 warps=4 stages=2  0.4695 ms
+  BM= 64 BN=128 warps=8 stages=2  0.4552 ms
+  BM=128 BN= 32 warps=4 stages=4  0.4726 ms
+  BM=128 BN= 32 warps=8 stages=3  0.4577 ms
+  BM=128 BN= 64 warps=4 stages=3  0.4654 ms
+  BM=128 BN= 64 warps=8 stages=2  0.4664 ms
+  BM=128 BN=128 warps=4 stages=2  0.4526 ms
+  BM=128 BN=128 warps=8 stages=2  0.4700 ms
+  BM=256 BN= 32 warps=8 stages=2  0.4664 ms
+  BM=256 BN= 64 warps=8 stages=2  0.4547 ms
+  BM=256 BN= 64 warps=4 stages=2  0.4685 ms
+
+=== causal_alibi   N=4096 ===
+  BM= 64 BN= 32 warps=4 stages=3  1.8278 ms *
+  BM= 64 BN= 32 warps=4 stages=4  1.8258 ms *
+  BM= 64 BN= 64 warps=4 stages=3  1.8232 ms *
+  BM= 64 BN= 64 warps=8 stages=2  1.8278 ms
+  BM= 64 BN=128 warps=4 stages=2  1.7838 ms *
+  BM= 64 BN=128 warps=8 stages=2  1.8033 ms
+  BM=128 BN= 32 warps=4 stages=4  1.7900 ms
+  BM=128 BN= 32 warps=8 stages=3  1.8207 ms
+  BM=128 BN= 64 warps=4 stages=3  1.8207 ms
+  BM=128 BN= 64 warps=8 stages=2  1.8145 ms
+  BM=128 BN=128 warps=4 stages=2  1.8191 ms
+  BM=128 BN=128 warps=8 stages=2  1.8140 ms
+  BM=256 BN= 32 warps=8 stages=2  1.7981 ms
+  BM=256 BN= 64 warps=8 stages=2  1.8171 ms
+  BM=256 BN= 64 warps=4 stages=2  1.8176 ms
+
+======================================================================
+Variant            N   BM   BN  warps  stages          ms
+----------------------------------------------------------------------
+causal           512   64   32      4       4     0.0881
+causal          1024   64   32      4       4     0.1357
+causal          2048   64   32      4       3     0.4526
+causal          4096  128   32      4       4     1.7987
+causal_alibi     512   64   64      8       2     0.0901
+causal_alibi    1024   64   32      4       3     0.1352
+causal_alibi    2048   64   32      4       3     0.4495
+causal_alibi    4096   64  128      4       2     1.7838
+dense            512   64   32      4       4     0.0911
+dense           1024  128   64      8       2     0.2058
+dense           2048   64   32      4       4     0.8054
+dense           4096  128   64      8       2     3.1109
+sw_w256          512   64  128      8       2     0.0896
+sw_w256         1024   64   32      4       4     0.1137
+sw_w256         2048   64   64      4       3     0.2232
+sw_w256         4096   64   32      4       3     0.4449
+
+[ok] wrote results/e2e_2026-05-22/config_sweep_expanded.csv

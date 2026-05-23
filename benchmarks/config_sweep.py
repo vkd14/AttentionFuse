@@ -57,16 +57,24 @@ ITERS      = 50
 # At BLOCK_M=128, BLOCK_N=64                : 32 KB / stage.  3 stages =  96 KB (fits)
 _CONFIG_GRID: list[TileConfig] = [
     # (BLOCK_M, BLOCK_N, num_warps, num_stages)
+    # Small tiles (good for sparse variants)
     TileConfig(BLOCK_M=64,  BLOCK_N=32,  num_warps=4, num_stages=3),
+    TileConfig(BLOCK_M=64,  BLOCK_N=32,  num_warps=4, num_stages=4),
     TileConfig(BLOCK_M=64,  BLOCK_N=64,  num_warps=4, num_stages=3),
+    TileConfig(BLOCK_M=64,  BLOCK_N=64,  num_warps=8, num_stages=2),
     TileConfig(BLOCK_M=64,  BLOCK_N=128, num_warps=4, num_stages=2),
     TileConfig(BLOCK_M=64,  BLOCK_N=128, num_warps=8, num_stages=2),
+    # Medium tiles (default class)
     TileConfig(BLOCK_M=128, BLOCK_N=32,  num_warps=4, num_stages=4),
     TileConfig(BLOCK_M=128, BLOCK_N=32,  num_warps=8, num_stages=3),
-    TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=4, num_stages=3),   # default
-    TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=8, num_stages=2),
+    TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=4, num_stages=3),   # legacy default
+    TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=8, num_stages=2),   # new default
     TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=4, num_stages=2),
     TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=8, num_stages=2),
+    # Large tiles (good for large-N dense to amortise loop overhead)
+    TileConfig(BLOCK_M=256, BLOCK_N=32,  num_warps=8, num_stages=2),
+    TileConfig(BLOCK_M=256, BLOCK_N=64,  num_warps=8, num_stages=2),
+    TileConfig(BLOCK_M=256, BLOCK_N=64,  num_warps=4, num_stages=2),
 ]
 
 # Variants under test.

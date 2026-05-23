@@ -89,10 +89,22 @@ def run_attention(
     """
     if not (Q.is_cuda and K.is_cuda and V.is_cuda):
         raise RuntimeError("AttnFuse requires Q/K/V on a CUDA device.")
-    if Q.shape != K.shape or K.shape != V.shape:
+    # Allow GQA/MQA: Q has H_q heads, K and V have H_kv heads, H_q % H_kv == 0.
+    # Plain MHA is the special case H_q == H_kv (GROUP_SIZE = 1).
+    if K.shape != V.shape:
         raise ValueError(
-            f"Q/K/V shapes must match for self-attention; got {Q.shape}, {K.shape}, {V.shape}"
+            f"K and V must have the same shape; got {K.shape}, {V.shape}"
         )
+    if Q.shape[0] != K.shape[0] or Q.shape[2] != K.shape[2] or Q.shape[3] != K.shape[3]:
+        raise ValueError(
+            f"Q and K/V must agree on (batch, seqlen, head_dim); got Q={Q.shape}, K={K.shape}"
+        )
+    H_q, H_kv = Q.shape[1], K.shape[1]
+    if H_q % H_kv != 0:
+        raise ValueError(
+            f"Q heads ({H_q}) must be a multiple of KV heads ({H_kv}) for GQA"
+        )
+    group_size = H_q // H_kv
 
     bundle = get_or_compile(graph)
     B, H, N, D = Q.shape
@@ -141,6 +153,7 @@ def run_attention(
         V.stride(0), V.stride(1), V.stride(2), V.stride(3),
         out.stride(0), out.stride(1), out.stride(2), out.stride(3),
         B, H, N,
+        group_size,
         slopes,
         b,
         b.stride(0), b.stride(1), b.stride(2), b.stride(3),

@@ -72,6 +72,7 @@ def attnfuse_fwd_kernel(
     stride_vb, stride_vh, stride_vn, stride_vd,
     stride_ob, stride_oh, stride_om, stride_od,
     B, H, N,
+    GROUP_SIZE,                        # GQA/MQA: H_q // H_kv (=1 for plain MHA)
     alibi_slopes_ptr,                  # only read when BIAS_KIND == 1
     bias_ptr,                          # only read when BIAS_KIND == 2
     stride_biasb, stride_biash, stride_biasm, stride_biasn,
@@ -87,11 +88,14 @@ def attnfuse_fwd_kernel(
     ROPE_KIND: tl.constexpr,           # 0 none, 1 fused RoPE (Su et al., 2021)
     SKIP_EMPTY: tl.constexpr,
 ):
-    """One program per (batch, head, m_block)."""
+    """One program per (batch, query-head, m_block).
+    For GQA/MQA, each query head h maps to KV head h_kv = h // GROUP_SIZE.
+    """
     pid_m  = tl.program_id(0)
     pid_bh = tl.program_id(1)
-    b = pid_bh // H
-    h = pid_bh %  H
+    b    = pid_bh // H
+    h    = pid_bh %  H
+    h_kv = h // GROUP_SIZE              # group head index for K, V (GQA)
 
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
@@ -103,11 +107,11 @@ def attnfuse_fwd_kernel(
     rot_offs_d = tl.where(offs_d < d_half, offs_d + d_half, offs_d - d_half)
     rot_sign   = tl.where(offs_d < d_half, -1.0, 1.0)
 
-    # Pointers to the (b, h) slice
-    Q_bh = Q_ptr + b * stride_qb + h * stride_qh
-    K_bh = K_ptr + b * stride_kb + h * stride_kh
-    V_bh = V_ptr + b * stride_vb + h * stride_vh
-    O_bh = O_ptr + b * stride_ob + h * stride_oh
+    # Pointers to the (b, h) slice for Q/O (query head) and (b, h_kv) for K/V
+    Q_bh = Q_ptr + b * stride_qb + h    * stride_qh
+    K_bh = K_ptr + b * stride_kb + h_kv * stride_kh
+    V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
+    O_bh = O_ptr + b * stride_ob + h    * stride_oh
 
     # Load Q tile (BLOCK_M, HEAD_DIM) once, keep in registers / SMEM
     q_ptrs = Q_bh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qd
