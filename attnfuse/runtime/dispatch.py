@@ -111,6 +111,18 @@ def run_attention(
     bundle = get_or_compile(graph)
     B, H, N, D = Q.shape
 
+    # Flash Decoding fast path: when Q.N = 1 and N_kv is large enough that
+    # splitting the KV axis saturates the GPU's SMs better than launching
+    # one program per (b, h_q). Restricted to the no-mask + (none / ALiBi
+    # bias) + no-RoPE subset, which covers the common autoregressive
+    # decode pattern.
+    from .flash_decode import can_use_flash_decode, run_flash_decode
+    if can_use_flash_decode(graph, Q, K):
+        if out is None:
+            out = torch.empty_like(Q)
+        return run_flash_decode(graph, Q, K, V, bundle.sm_scale,
+                                bundle.bias_kind, K.shape[1], out)
+
     # Cross-attention guard: causal and sliding-window only make sense when
     # N_q == N_kv (relative-position semantics require equal-length axes).
     if N_q != N_kv:
