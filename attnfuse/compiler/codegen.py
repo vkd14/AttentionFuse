@@ -168,6 +168,12 @@ def attnfuse_fwd_kernel(
         interior_hi_max = m_lo + WINDOW - BLOCK_N
         interior_hi     = (interior_hi_max // BLOCK_N) * BLOCK_N + BLOCK_N
         interior_hi     = tl.minimum(interior_hi, n_hi)
+        # Critical: the interior loop drops the n_in_bounds mask for speed,
+        # so every cur_n in [interior_lo, interior_hi) MUST satisfy cur_n < N.
+        # Clamp interior_hi to the last BLOCK_N-aligned position that is also
+        # <= N; the trailing partial tile (when N % BLOCK_N != 0) is handled
+        # by the right-boundary loop, which keeps the n_in_bounds mask.
+        interior_hi     = tl.minimum(interior_hi, (N // BLOCK_N) * BLOCK_N)
         interior_lo     = tl.minimum(interior_lo, interior_hi)
 
         # ----- LOOP 1: left boundary (apply SW mask + safe softmax) -----

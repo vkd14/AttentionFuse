@@ -21,10 +21,14 @@ from ..ir.tiled import TileConfig
 
 # fp16/bf16 default (dense / no-mask) configs. 3 pipeline stages fit in 101 KB SMEM.
 # Tuned on RTX 3090 (sm_86) via benchmarks/config_sweep.py.
+#
+# NOTE: Triton's `tl.arange(0, HEAD_DIM)` requires HEAD_DIM to be a power of 2,
+# so only {32, 64, 128, 256} are real supported values. Non-power-of-2 head dims
+# (e.g. 96 for some research models) would need separate handling and are
+# explicitly out of scope for this release.
 _AMPERE_TABLE_F16: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=8, num_stages=2),
     64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=8, num_stages=2),
-    96:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     128: TileConfig(BLOCK_M=128, BLOCK_N=32, num_warps=8, num_stages=2),
     256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
 }
@@ -37,7 +41,6 @@ _AMPERE_TABLE_F16: dict[int, TileConfig] = {
 _AMPERE_TABLE_F16_SPARSE: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=3),
     64:  TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=3),
-    96:  TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=3),
     128: TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=2),
     256: TileConfig(BLOCK_M=64, BLOCK_N=32, num_warps=4, num_stages=2),
 }
@@ -47,7 +50,6 @@ _AMPERE_TABLE_F16_SPARSE: dict[int, TileConfig] = {
 _AMPERE_TABLE_F16_ROPE: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=128, BLOCK_N=32, num_warps=4, num_stages=2),
     64:  TileConfig(BLOCK_M=128, BLOCK_N=32, num_warps=4, num_stages=2),
-    96:  TileConfig(BLOCK_M=128, BLOCK_N=32, num_warps=4, num_stages=2),
     128: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
     256: TileConfig(BLOCK_M=64,  BLOCK_N=16, num_warps=4, num_stages=2),
 }
@@ -55,7 +57,6 @@ _AMPERE_TABLE_F16_ROPE: dict[int, TileConfig] = {
 _AMPERE_TABLE_F32_ROPE: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
     64:  TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
-    96:  TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
     128: TileConfig(BLOCK_M=64,  BLOCK_N=16, num_warps=4, num_stages=2),
     256: TileConfig(BLOCK_M=32,  BLOCK_N=16, num_warps=4, num_stages=2),
 }
@@ -65,7 +66,6 @@ _AMPERE_TABLE_F32_ROPE: dict[int, TileConfig] = {
 _AMPERE_TABLE_F32: dict[int, TileConfig] = {
     32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
     64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
-    96:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=2),
     128: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=8, num_stages=2),
     256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
 }
