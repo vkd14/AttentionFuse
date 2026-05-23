@@ -107,7 +107,6 @@ def run_flash_decode(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
     num_splits = _pick_num_splits(B, H_q, N_kv)
 
     # BLOCK_N choice: smaller for split kernels (each split is shorter).
-    # 128 is a good Ampere fp16 sweet-spot for D=128, 64 for D=64.
     block_n = 128 if D >= 128 else 64
     if N_kv // num_splits < block_n:
         block_n = 64

@@ -40,8 +40,6 @@ import triton.language as tl
 @triton.jit
 def attnfuse_decode_split_kernel(
     Q_ptr, K_ptr, V_ptr,
-    # Workspace outputs: partial m (max), l (sum-exp), acc (output);
-    # shape (NUM_SPLITS, B, H_q, HEAD_DIM) for acc, (NUM_SPLITS, B, H_q) for m/l
     Wm_ptr, Wl_ptr, Wacc_ptr,
     sm_scale,
     stride_qb, stride_qh, stride_qd,
@@ -57,11 +55,12 @@ def attnfuse_decode_split_kernel(
     BLOCK_N:  tl.constexpr,
     NUM_SPLITS: tl.constexpr,
 ):
-    """One program per (split_id, batch * query_head). Processes one KV chunk.
+    """One program per (split_id, batch * Q-head). Processes one KV chunk
+    and writes its partial (m, l, acc) to the workspace.
 
-    Each program covers cur_n in [split_id * split_len, (split_id+1) * split_len),
-    where split_len = cdiv(N_KV, NUM_SPLITS), and writes its partial m, l, acc
-    to the workspace.
+    Scalar single-query variant: the dot-product is a broadcast-multiply
+    + reduce (no tensor cores for the Q@K^T step), but the BLOCK_N tiles
+    are still vectorised and the V projection uses dense tensor patterns.
     """
     split_id = tl.program_id(0)
     pid_bh   = tl.program_id(1)
@@ -72,15 +71,13 @@ def attnfuse_decode_split_kernel(
     offs_n = tl.arange(0, BLOCK_N)
     offs_d = tl.arange(0, HEAD_DIM)
 
-    # Load Q (single query row -- Q.N = 1 is the decode shape)
     q_ptrs = Q_ptr + b * stride_qb + h * stride_qh + offs_d * stride_qd
-    q = tl.load(q_ptrs)                                    # shape (HEAD_DIM,)
+    q = tl.load(q_ptrs)
 
-    # Split bounds along the KV axis
     split_len = (N_KV + NUM_SPLITS - 1) // NUM_SPLITS
     n_lo = split_id * split_len
     n_hi = tl.minimum(n_lo + split_len, N_KV)
-    n_lo = (n_lo // BLOCK_N) * BLOCK_N                     # BLOCK_N-align for masked loads
+    n_lo = (n_lo // BLOCK_N) * BLOCK_N
 
     K_bh = K_ptr + b * stride_kb + h_kv * stride_kh
     V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
@@ -88,35 +85,29 @@ def attnfuse_decode_split_kernel(
     if BIAS_KIND == 1:
         slope = tl.load(alibi_slopes_ptr + h)
 
-    # Online-softmax accumulators (scalars for the single-query case)
     m_i = -float("inf")
     l_i = 0.0
     acc = tl.zeros([HEAD_DIM], dtype=tl.float32)
 
     for n_start in range(n_lo, n_hi, BLOCK_N):
         cur_n = n_start + offs_n
-        n_in_bounds = (cur_n < n_hi) & (cur_n >= n_lo)     # within OUR split AND within N_KV
+        n_in_bounds = (cur_n < n_hi) & (cur_n >= n_lo)
 
         k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
         v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
         k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
         v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
 
-        # s = q . k   ->  (BLOCK_N,)
         s = tl.sum(q[None, :].to(tl.float32) * k.to(tl.float32), axis=1) * sm_scale
 
         if BIAS_KIND == 1:
-            # ALiBi for a single query at the trailing position (N_KV - 1):
-            # dist = (N_KV - 1) - cur_n   (always >= 0 in the typical decode case)
             dist = tl.abs((N_KV - 1) - cur_n)
             s = s + (-slope.to(tl.float32) * dist.to(tl.float32))
 
         s = tl.where(n_in_bounds, s, -float("inf"))
 
-        # Online softmax update
         block_max = tl.max(s, axis=0)
         m_new = tl.maximum(m_i, block_max)
-        # If THIS split has no in-bounds keys, block_max = -inf, so we leave state untouched
         is_all_masked = (block_max == float("-inf"))
         alpha = tl.where(is_all_masked, 1.0, tl.exp(m_i - m_new))
         safe_m_new = tl.where(is_all_masked, 0.0, m_new)
@@ -125,7 +116,6 @@ def attnfuse_decode_split_kernel(
         acc = acc * alpha + tl.sum(p[:, None] * v.to(tl.float32), axis=0)
         m_i = m_new
 
-    # Write partial m, l, acc to workspace
     wm_ptr  = Wm_ptr  + split_id * stride_wm_s  + b * stride_wm_b  + h * stride_wm_h
     wl_ptr  = Wl_ptr  + split_id * stride_wl_s  + b * stride_wl_b  + h * stride_wl_h
     wacc_p  = Wacc_ptr + split_id * stride_wacc_s + b * stride_wacc_b + h * stride_wacc_h \\
