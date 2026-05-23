@@ -104,24 +104,29 @@ def relu_attention(scores: Expr) -> Expr:
 def attention(fn: Callable) -> Callable:
     """Decorator: trace a Python function written with AttnFuse combinators.
 
-    The decorated function is callable with real `torch.Tensor` Q/K/V; on the
-    first call we trace once (no GPU work) to recover the high-level IR, hand
-    it to the compiler, and cache the compiled kernel keyed by (graph-hash,
-    dtype, head_dim).  Subsequent calls dispatch directly to the kernel.
+    The decorated function is callable with real `torch.Tensor` Q/K/V; we
+    trace once per distinct (head_dim, dtype) pair, hand the graph to the
+    compiler, and cache the compiled kernel keyed by the graph signature.
+    Re-tracing on shape change is essentially free (it does no GPU work)
+    and only happens when the user calls the same function with a new
+    head_dim or dtype -- a rare event in normal use.
     """
-    # Defer compiler import to avoid pulling Triton into the import path of
-    # tools that only want to inspect IR (e.g. tests on CPU-only machines).
-    graph: Graph | None = None
+    graphs: dict[tuple, Graph] = {}
 
     @functools.wraps(fn)
     def wrapper(Q, K, V, *, bias=None, cos=None, sin=None,
                 return_graph: bool = False, **kwargs):
-        nonlocal graph
+        # Key the cached graph by the dimensions that drive codegen
+        # specialisation (head_dim becomes a tl.constexpr, dtype gates
+        # the tile-config table, has-RoPE is a graph property already).
+        key = (Q.shape[-1], str(Q.dtype))
+        graph = graphs.get(key)
         if graph is None:
             graph = trace_attention_fn(fn, Q, K, V)
+            graphs[key] = graph
             if os.environ.get("ATTNFUSE_DEBUG"):
                 from ..ir.printer import format_graph
-                print("[AttnFuse] high-level IR:")
+                print(f"[AttnFuse] high-level IR (head_dim={key[0]} dtype={key[1]}):")
                 print(format_graph(graph))
         if return_graph:
             return graph

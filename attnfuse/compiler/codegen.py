@@ -71,7 +71,7 @@ def attnfuse_fwd_kernel(
     stride_kb, stride_kh, stride_kn, stride_kd,
     stride_vb, stride_vh, stride_vn, stride_vd,
     stride_ob, stride_oh, stride_om, stride_od,
-    B, H, N,
+    B, H, N_Q, N_KV,                   # N_Q == N_KV for self-attention
     GROUP_SIZE,                        # GQA/MQA: H_q // H_kv (=1 for plain MHA)
     alibi_slopes_ptr,                  # only read when BIAS_KIND == 1
     bias_ptr,                          # only read when BIAS_KIND == 2
@@ -115,7 +115,7 @@ def attnfuse_fwd_kernel(
 
     # Load Q tile (BLOCK_M, HEAD_DIM) once, keep in registers / SMEM
     q_ptrs = Q_bh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qd
-    q_mask = offs_m[:, None] < N
+    q_mask = offs_m[:, None] < N_Q
     q = tl.load(q_ptrs, mask=q_mask, other=0.0)
 
     # Fused RoPE: rotate Q tile before the inner loop
@@ -144,15 +144,15 @@ def attnfuse_fwd_kernel(
     # `A and B` to avoid Triton tl.constexpr.__bool__ evaluation issues.
     if MASK_KIND == 1:                        # causal — always skip upper blocks
         n_lo = 0
-        n_hi = tl.minimum((pid_m + 1) * BLOCK_M, N)
+        n_hi = tl.minimum((pid_m + 1) * BLOCK_M, N_KV)
     elif MASK_KIND == 2:                      # sliding window — always trim both ends
         m_lo = pid_m * BLOCK_M
         m_hi = m_lo + BLOCK_M
         n_lo = tl.maximum(m_lo - WINDOW + 1, 0)
-        n_hi = tl.minimum(m_hi + WINDOW, N)
+        n_hi = tl.minimum(m_hi + WINDOW, N_KV)
     else:                                     # full / dense
         n_lo = 0
-        n_hi = N
+        n_hi = N_KV
 
     # Round n_lo down to BLOCK_N boundary so the mask logic is uniform
     n_lo = (n_lo // BLOCK_N) * BLOCK_N
@@ -177,7 +177,7 @@ def attnfuse_fwd_kernel(
         # Clamp interior_hi to the last BLOCK_N-aligned position that is also
         # <= N; the trailing partial tile (when N % BLOCK_N != 0) is handled
         # by the right-boundary loop, which keeps the n_in_bounds mask.
-        interior_hi     = tl.minimum(interior_hi, (N // BLOCK_N) * BLOCK_N)
+        interior_hi     = tl.minimum(interior_hi, (N_KV // BLOCK_N) * BLOCK_N)
         interior_lo     = tl.minimum(interior_lo, interior_hi)
 
         # ----- LOOP 1: left boundary (apply SW mask + safe softmax) -----
@@ -185,7 +185,7 @@ def attnfuse_fwd_kernel(
             cur_n = n_start + offs_n
             k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
             v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
-            n_in_bounds = cur_n < N
+            n_in_bounds = cur_n < N_KV
             k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
             v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
             if ROPE_KIND == 1:
@@ -206,7 +206,7 @@ def attnfuse_fwd_kernel(
             elif BIAS_KIND == 2:
                 b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
                           + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
-                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_mask = (offs_m[:, None] < N_Q) & (cur_n[None, :] < N_KV)
                 b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
                 s = s + b_tile.to(tl.float32)
             d = offs_m[:, None] - cur_n[None, :]
@@ -274,7 +274,7 @@ def attnfuse_fwd_kernel(
             cur_n = n_start + offs_n
             k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
             v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
-            n_in_bounds = cur_n < N
+            n_in_bounds = cur_n < N_KV
             k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
             v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
             if ROPE_KIND == 1:
@@ -295,7 +295,7 @@ def attnfuse_fwd_kernel(
             elif BIAS_KIND == 2:
                 b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
                           + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
-                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_mask = (offs_m[:, None] < N_Q) & (cur_n[None, :] < N_KV)
                 b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
                 s = s + b_tile.to(tl.float32)
             d = offs_m[:, None] - cur_n[None, :]
@@ -322,7 +322,7 @@ def attnfuse_fwd_kernel(
             cur_n = n_start + offs_n
             k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
             v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
-            n_in_bounds = cur_n < N
+            n_in_bounds = cur_n < N_KV
             k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
             v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
             if ROPE_KIND == 1:
@@ -343,7 +343,7 @@ def attnfuse_fwd_kernel(
             elif BIAS_KIND == 2:
                 b_ptrs = (bias_ptr + b * stride_biasb + h * stride_biash
                           + offs_m[:, None] * stride_biasm + cur_n[None, :] * stride_biasn)
-                b_mask = (offs_m[:, None] < N) & (cur_n[None, :] < N)
+                b_mask = (offs_m[:, None] < N_Q) & (cur_n[None, :] < N_KV)
                 b_tile = tl.load(b_ptrs, mask=b_mask, other=0.0)
                 s = s + b_tile.to(tl.float32)
             if MASK_KIND == 1:
