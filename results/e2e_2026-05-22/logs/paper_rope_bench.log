@@ -1,0 +1,13 @@
+# RoPE bench  device=NVIDIA GeForce RTX 3090
+# 2026-05-23 02:23:10
+512  preprocess  0.245  13.16
+512  fused  0.106  30.39
+1024  preprocess  0.369  34.95
+1024  fused  0.236  54.71
+2048  preprocess  0.888  58.02
+2048  fused  0.677  76.09
+4096  preprocess  2.539  81.20
+4096  fused  2.340  88.11
+
+[ok] wrote results/e2e_2026-05-22/rope_bench_paper.csv
+==[done rope_bench @ 0:03.83 elapsed]==

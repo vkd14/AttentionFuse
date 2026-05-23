@@ -1,0 +1,20 @@
+==[start bench_fp16 @ 02:21:32]==
+==[finished bench_fp16, exit=0]==
+==[start bench_bf16 @ 02:21:56]==
+==[finished bench_bf16, exit=0]==
+==[start bench_fp32 @ 02:22:22]==
+==[finished bench_fp32, exit=0]==
+==[start rope_bench @ 02:23:09]==
+==[finished rope_bench, exit=0]==
+==[start jit_compile @ 02:23:13]==
+==[finished jit_compile, exit=0]==
+==[start roofline @ 02:23:16]==
+==[finished roofline, exit=0]==
+==[all paper benches done @ 02:23:20]==
+-rw-rw-r-- 1 ashiqur ashiqur 3565 May 23 02:22 results/e2e_2026-05-22/eval_bf16_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur 3566 May 23 02:21 results/e2e_2026-05-22/eval_fp16_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur 3178 May 23 02:23 results/e2e_2026-05-22/eval_fp32_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur 1292 May 23 02:19 results/e2e_2026-05-22/flex_bench_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur  196 May 23 02:23 results/e2e_2026-05-22/jit_compile_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur  745 May 23 02:23 results/e2e_2026-05-22/roofline_paper.csv
+-rw-rw-r-- 1 ashiqur ashiqur  243 May 23 02:23 results/e2e_2026-05-22/rope_bench_paper.csv

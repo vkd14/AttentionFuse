@@ -1,0 +1,9 @@
+# JIT compile-time  N=1024  device=NVIDIA GeForce RTX 3090
+  dense            first= 1089.2 ms  cached=0.144 ms  overhead=7544x
+  causal           first=   22.6 ms  cached=0.098 ms  overhead=232x
+  sliding_w256     first=   22.5 ms  cached=0.092 ms  overhead=246x
+  causal_alibi     first=   23.0 ms  cached=0.095 ms  overhead=243x
+  causal_rope      first=   57.5 ms  cached=0.154 ms  overhead=375x
+
+[ok] wrote results/e2e_2026-05-22/jit_compile_paper.csv
+==[done jit_compile @ 0:02.97 elapsed]==

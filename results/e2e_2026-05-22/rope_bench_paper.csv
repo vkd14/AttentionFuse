@@ -1,0 +1,9 @@
+seqlen,method,latency_ms,tflops
+512,preprocess,0.245,13.16
+512,fused,0.106,30.39
+1024,preprocess,0.369,34.95
+1024,fused,0.236,54.71
+2048,preprocess,0.888,58.02
+2048,fused,0.677,76.09
+4096,preprocess,2.539,81.20
+4096,fused,2.340,88.11
