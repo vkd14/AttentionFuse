@@ -14,6 +14,32 @@ from ..compiler.codegen_backward import get_backward_source
 _bwd_module = None
 _GENERATED_DIR = Path(__file__).parent.parent / "_generated"
 
+# Tile config for the backward kernels. Overridable for sweeping via
+# attnfuse.runtime.backward._BWD_TILE.update({...}).
+#
+# Defaults derived from benchmarks/backward_config_sweep.py on RTX 3090:
+#   N <=  512 : BM=64  BN=64  warps=8   (best small-N parallelism)
+#   N == 1024 : BM=128 BN=32  warps=4
+#   N >= 2048 : BM=64  BN=64  warps=4   (best at long context)
+# We pick a single mid-range default and the dispatch overrides it for
+# short sequences below.
+_BWD_TILE = {
+    "BLOCK_M":    64,
+    "BLOCK_N":    64,
+    "num_warps":  4,
+    "num_stages": 2,
+    "auto":       True,         # True: let _pick_backward_tile choose per N_q
+}
+
+
+def _pick_backward_tile(N_q: int) -> dict:
+    """Return the best tile config for this sequence length."""
+    if N_q <= 512:
+        return {"BLOCK_M": 64,  "BLOCK_N": 64, "num_warps": 8, "num_stages": 2}
+    if N_q <= 1024:
+        return {"BLOCK_M": 128, "BLOCK_N": 32, "num_warps": 4, "num_stages": 2}
+    return     {"BLOCK_M": 64,  "BLOCK_N": 64, "num_warps": 4, "num_stages": 2}
+
 
 def _load_backward_kernels():
     global _bwd_module
@@ -87,10 +113,13 @@ def run_backward(graph: Graph,
     # D = rowsum(dO * O), shape (B, H_q, N_q), fp32
     D_buf = torch.empty(B, H_q, N_q, dtype=torch.float32, device=Q.device)
 
-    # Tile sizes: BLOCK_N for K-axis program (dKdV); BLOCK_M for Q-axis program (dQ).
-    # Both kernels also have an inner-loop block over the other axis.
-    BLOCK_M = 64
-    BLOCK_N = 64
+    # Per-shape tile selection (sweep-derived). The sweep override
+    # (_BWD_TILE) wins if it's been explicitly set by a caller.
+    tile = _pick_backward_tile(N_q) if _BWD_TILE.get("auto", True) else _BWD_TILE
+    BLOCK_M    = tile["BLOCK_M"]
+    BLOCK_N    = tile["BLOCK_N"]
+    NUM_WARPS  = tile["num_warps"]
+    NUM_STAGES = tile["num_stages"]
 
     # -------- Preproc: compute D = rowsum(dO * O) ---------------------------
     grid_pre = ((N_q + BLOCK_M - 1) // BLOCK_M, B * H_q)
@@ -102,7 +131,7 @@ def run_backward(graph: Graph,
         B, H_q, N_q,
         HEAD_DIM=D,
         BLOCK_M=BLOCK_M,
-        num_warps=4,
+        num_warps=NUM_WARPS,
     )
 
     # -------- dK / dV --------------------------------------------------------
@@ -127,7 +156,7 @@ def run_backward(graph: Graph,
         HEAD_DIM=D,
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
-        num_warps=4, num_stages=2,
+        num_warps=NUM_WARPS, num_stages=NUM_STAGES,
     )
 
     # -------- dQ -------------------------------------------------------------
@@ -151,7 +180,7 @@ def run_backward(graph: Graph,
         HEAD_DIM=D,
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
-        num_warps=4, num_stages=2,
+        num_warps=NUM_WARPS, num_stages=NUM_STAGES,
     )
 
     return dQ, dK, dV
