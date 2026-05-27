@@ -1,0 +1,13 @@
+pattern,seqlen,n_active_blocks,n_total_blocks,backend,latency_ms,speedup_vs_flex
+bigbird,1024,74,256,attnfuse,0.117,1.00
+bigbird,1024,74,256,flex,nan,nan
+bigbird,2048,154,1024,attnfuse,0.231,1.00
+bigbird,2048,154,1024,flex,nan,nan
+bigbird,4096,314,4096,attnfuse,0.472,1.00
+bigbird,4096,314,4096,flex,nan,nan
+strided,1024,128,256,attnfuse,0.143,1.00
+strided,1024,128,256,flex,nan,nan
+strided,2048,512,1024,attnfuse,0.503,1.00
+strided,2048,512,1024,flex,nan,nan
+strided,4096,2048,4096,attnfuse,1.896,1.00
+strided,4096,2048,4096,flex,nan,nan

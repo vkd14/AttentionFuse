@@ -29,15 +29,16 @@ from ..ir.high_level import MaskKind, BiasKind, NormKind
 from ..ir.tiled import TiledKernel
 
 # Encoding for constexpr flags (keep stable; codegen template hardcodes them).
-_MASK_FULL, _MASK_CAUSAL, _MASK_SLIDING = 0, 1, 2
+_MASK_FULL, _MASK_CAUSAL, _MASK_SLIDING, _MASK_BLOCK_SPARSE = 0, 1, 2, 3
 _BIAS_NONE, _BIAS_ALIBI, _BIAS_ADDITIVE = 0, 1, 2
 _NORM_SOFTMAX, _NORM_RELU = 0, 1
 
 
 def _encode_mask(k: MaskKind) -> int:
-    return {MaskKind.FULL: _MASK_FULL,
-            MaskKind.CAUSAL: _MASK_CAUSAL,
-            MaskKind.SLIDING_WINDOW: _MASK_SLIDING}[k]
+    return {MaskKind.FULL:          _MASK_FULL,
+            MaskKind.CAUSAL:        _MASK_CAUSAL,
+            MaskKind.SLIDING_WINDOW: _MASK_SLIDING,
+            MaskKind.BLOCK_SPARSE:  _MASK_BLOCK_SPARSE}[k]
 
 
 def _encode_bias(k: BiasKind | None) -> int:

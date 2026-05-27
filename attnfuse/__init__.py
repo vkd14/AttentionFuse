@@ -31,10 +31,12 @@ from .dsl.api import (
     causal,
     sliding_window,
     full,
+    block_sparse,
     alibi,
     softmax,
     relu_attention,
 )
+from .runtime.block_mask import BlockMask, create_block_mask
 
 __version__ = "1.0.0"
 
@@ -46,8 +48,11 @@ __all__ = [
     "causal",
     "sliding_window",
     "full",
+    "block_sparse",
     "alibi",
     "softmax",
     "relu_attention",
+    "BlockMask",
+    "create_block_mask",
     "__version__",
 ]

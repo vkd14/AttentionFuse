@@ -28,6 +28,7 @@ class MaskKind(enum.Enum):
     FULL = "full"
     CAUSAL = "causal"
     SLIDING_WINDOW = "sliding_window"
+    BLOCK_SPARSE = "block_sparse"     # arbitrary user-supplied block mask
 
 
 class BiasKind(enum.Enum):

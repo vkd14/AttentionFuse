@@ -77,6 +77,17 @@ def full(scores: Expr) -> Expr:
     return MaskOp(kind=MaskKind.FULL, scores=scores)
 
 
+def block_sparse(scores: Expr) -> Expr:
+    """User-supplied block-sparse mask (BigBird / FlexAttention style).
+
+    The mask is provided at call time via ``block_mask=<BlockMask>`` kwarg.
+    Use :func:`attnfuse.create_block_mask` to build a BlockMask from a
+    Python predicate. The kernel iterates only over the active (m, n)
+    block pairs, so FLOPs and HBM traffic are both genuinely sub-quadratic.
+    """
+    return MaskOp(kind=MaskKind.BLOCK_SPARSE, scores=scores)
+
+
 def alibi(scores: Expr, num_heads: int) -> Expr:
     """ALiBi linear positional bias (Press et al., 2021).
 
@@ -117,7 +128,7 @@ def attention(fn: Callable) -> Callable:
 
     @functools.wraps(fn)
     def wrapper(Q, K, V, *, bias=None, cos=None, sin=None,
-                return_graph: bool = False, **kwargs):
+                block_mask=None, return_graph: bool = False, **kwargs):
         # Key the cached graph by the dimensions that drive codegen
         # specialisation (head_dim becomes a tl.constexpr, dtype gates
         # the tile-config table, has-RoPE is a graph property already).
@@ -132,6 +143,27 @@ def attention(fn: Callable) -> Callable:
                 print(format_graph(graph))
         if return_graph:
             return graph
+
+        # Block-sparse path: dedicated kernel that iterates over the
+        # user-supplied active-block lists in the BlockMask.
+        masks = {m.kind for m in graph.collect_masks()}
+        if MaskKind.BLOCK_SPARSE in masks:
+            if block_mask is None:
+                raise RuntimeError(
+                    "Graph uses af.block_sparse(); pass a BlockMask via "
+                    "block_mask=<BlockMask> at call time. Build one via "
+                    "attnfuse.create_block_mask(predicate, Q_LEN, KV_LEN)."
+                )
+            from ..runtime.block_mask import run_block_sparse, BlockMask as _BM
+            if not isinstance(block_mask, _BM):
+                raise TypeError("block_mask must be an attnfuse.BlockMask")
+            # ALiBi if present in graph
+            biases = {b.kind for b in graph.collect_biases()}
+            from ..ir.high_level import BiasKind as _BK
+            bias_kind_int = 1 if _BK.ALIBI in biases else 0
+            sm_scale = 1.0 / (Q.shape[-1] ** 0.5)
+            return run_block_sparse(Q, K, V, block_mask, sm_scale,
+                                     bias_kind=bias_kind_int)
 
         # Route through autograd.Function when any input requires gradient.
         # Inference paths (no requires_grad) skip the L allocation entirely
