@@ -1,0 +1,29 @@
+# GQA bench  device=NVIDIA GeForce RTX 3090
+# torch=2.5.1+cu121  2026-05-27 01:55:23
+model          shape                        N backend            ms    TFLOPS
+llama3-8B      H_q=32 H_kv=8 D=128        512 attnfuse       0.158     27.15
+llama3-8B      H_q=32 H_kv=8 D=128        512 flex           0.143     30.07
+llama3-8B      H_q=32 H_kv=8 D=128       1024 attnfuse       0.433     39.66
+llama3-8B      H_q=32 H_kv=8 D=128       1024 flex           0.400     42.91
+llama3-8B      H_q=32 H_kv=8 D=128       2048 attnfuse       1.408     48.81
+llama3-8B      H_q=32 H_kv=8 D=128       2048 flex           1.181     58.20
+llama3-8B      H_q=32 H_kv=8 D=128       4096 attnfuse       4.614     59.58
+llama3-8B      H_q=32 H_kv=8 D=128       4096 flex           4.333     63.44
+llama3-70B     H_q=64 H_kv=8 D=128        512 attnfuse       0.228     37.62
+llama3-70B     H_q=64 H_kv=8 D=128        512 flex           0.212     40.52
+llama3-70B     H_q=64 H_kv=8 D=128       1024 attnfuse       0.689     49.86
+llama3-70B     H_q=64 H_kv=8 D=128       1024 flex           0.646     53.18
+llama3-70B     H_q=64 H_kv=8 D=128       2048 attnfuse       2.395     57.38
+llama3-70B     H_q=64 H_kv=8 D=128       2048 flex           2.456     55.96
+llama3-70B     H_q=64 H_kv=8 D=128       4096 attnfuse       8.954     61.40
+llama3-70B     H_q=64 H_kv=8 D=128       4096 flex           8.521     64.52
+falcon-MQA     H_q=64 H_kv=1 D=128        512 attnfuse       0.226     37.96
+falcon-MQA     H_q=64 H_kv=1 D=128        512 flex           0.220     39.02
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 attnfuse       0.711     48.31
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 flex           0.675     50.92
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 attnfuse       4.880     28.16
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 flex           4.734     29.03
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 attnfuse       8.989     61.16
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 flex           8.513     64.58
+
+[ok] wrote results/e2e_2026-05-22/gqa_bench_final.csv

@@ -1,0 +1,36 @@
+# Composition bench  device=NVIDIA GeForce RTX 3090
+# torch=2.5.1+cu121  2026-05-27 01:55:23
+causal  512  attnfuse  0.098  16.38  1.00 
+causal  512  flex  0.106  15.12  1.08 
+causal_alibi  512  attnfuse  0.102  15.81  1.00 
+causal_alibi  512  flex  0.104  15.50  1.02 
+causal_rope  512  attnfuse  0.113  14.30  1.00 
+causal_rope  512  flex  0.162  9.95  1.44 
+causal_rope_alibi  512  attnfuse  0.111  14.56  1.00 
+causal_rope_alibi  512  flex  0.163  9.89  1.47 
+causal  1024  attnfuse  0.137  46.95  1.00 
+causal  1024  flex  0.155  41.53  1.13 
+causal_alibi  1024  attnfuse  0.134  48.03  1.00 
+causal_alibi  1024  flex  0.159  40.59  1.18 
+causal_rope  1024  attnfuse  0.206  31.30  1.00 
+causal_rope  1024  flex  0.377  17.10  1.83 
+causal_rope_alibi  1024  attnfuse  0.214  30.10  1.00 
+causal_rope_alibi  1024  flex  0.378  17.05  1.77 
+causal  2048  attnfuse  0.467  55.13  1.00 
+causal  2048  flex  0.466  55.31  1.00 
+causal_alibi  2048  attnfuse  0.458  56.24  1.00 
+causal_alibi  2048  flex  0.500  51.57  1.09 
+causal_rope  2048  attnfuse  0.663  38.90  1.00 
+causal_rope  2048  flex  0.866  29.75  1.31 
+causal_rope_alibi  2048  attnfuse  0.658  39.17  1.00 
+causal_rope_alibi  2048  flex  0.864  29.84  1.31 
+causal  4096  attnfuse  1.795  57.42  1.00 
+causal  4096  flex  1.686  61.16  0.94 
+causal_alibi  4096  attnfuse  1.769  58.27  1.00 
+causal_alibi  4096  flex  1.715  60.10  0.97 
+causal_rope  4096  attnfuse  2.431  42.40  1.00 
+causal_rope  4096  flex  4.861  21.20  2.00 
+causal_rope_alibi  4096  attnfuse  2.339  44.07  1.00 
+causal_rope_alibi  4096  flex  4.910  20.99  2.10 
+
+[ok] wrote results/e2e_2026-05-22/composition_bench_final.csv
