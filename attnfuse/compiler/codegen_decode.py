@@ -1,35 +1,41 @@
-"""Codegen for Flash Decoding (split-K attention).
+"""Codegen for Flash Decoding (split-K attention) with tensor-core matmul.
 
 The standard attention kernel launches one program per (batch, query-head,
-m_block). For autoregressive decoding (Q.N=1) this gives only B*H_q programs,
-typically 32 for an Llama-3-8B-style model. The RTX 3090 has 82 SMs, so
-roughly half are idle and the per-program inner loop scales linearly with
-cache length.
+m_block). For autoregressive decoding (Q.N=1) this gives only B*H_q programs
+-- typically 32 for an Llama-3-8B-style model -- which under-utilises the
+RTX 3090's 82 SMs and scales linearly with cache length.
 
-Flash Decoding (Dao 2023) fixes this by splitting the KV axis across many
-parallel programs and combining their partial results via online-softmax
-merging. With NUM_SPLITS programs per (b, h), total programs scale as
-NUM_SPLITS * B * H_q -- enough to saturate all SMs.
+Flash Decoding (Dao 2023) fixes this by:
+  1. Splitting the KV axis across NUM_SPLITS parallel programs.
+  2. Computing partial (m, l, acc) per chunk.
+  3. Merging them with the log-sum-exp algebra in a small combine kernel.
+
+This implementation additionally **batches BLOCK_H Q heads per program**
+so each program loads K and V exactly once (for GQA, the BLOCK_H heads
+that share a KV head reuse the same K/V tile). To keep Triton's
+``tl.dot`` happy (which requires M, N, K >= 16) we always set BLOCK_H = 16,
+cyclically replicating Q-head indices when GROUP_SIZE < 16 (typical GQA
+case) and masking the partial-result stores so duplicate rows are
+silently dropped. This recovers full tensor-core throughput on the
+Q @ K^T and P @ V matmuls.
 
 Two kernels live here:
 
   attnfuse_decode_split_kernel
-    Grid: (NUM_SPLITS, B * H_q)
-    Each program processes a contiguous chunk of K, V of length
-    ceil(N_kv / NUM_SPLITS). Outputs partial m, l, and acc per chunk.
+    Grid: (NUM_SPLITS, B * (H_q / chunk_size))
+    where chunk_size = min(GROUP_SIZE, BLOCK_H). Each program computes
+    partial (m, l, acc) for one KV chunk over `chunk_size` Q heads.
 
   attnfuse_decode_combine_kernel
     Grid: (B * H_q,)
-    For each (b, h) reads all NUM_SPLITS partial outputs and merges
-    them using the log-sum-exp trick (same algebra as the online-softmax
-    accumulator update, applied across split boundaries).
+    For each (b, h_q) reads all NUM_SPLITS partial outputs and merges
+    them via log-sum-exp into the final O[b, h_q, :].
 
-Restrictions of this initial Flash Decoding path (covers the production
-use case; other variants stay on the original kernel):
-  * Dense / no mask (MASK_KIND = 0)
-  * No additive bias (BIAS_KIND in {0, 1})  -- ALiBi works fine
-  * No RoPE (ROPE_KIND = 0)                 -- TODO: fused-RoPE decode
-  * Softmax norm only (NORM_KIND = 0)
+Restrictions of the initial scope:
+  * Dense mask (MASK_KIND = 0)
+  * No additive-tensor bias (BIAS_KIND in {0, 1})  -- ALiBi is supported
+  * No fused RoPE inside the decode kernel  (preprocess if needed)
+  * Softmax norm only
   * Q.N == 1 (the canonical decode shape)
 """
 
@@ -48,32 +54,63 @@ def attnfuse_decode_split_kernel(
     stride_wm_s, stride_wm_b, stride_wm_h,
     stride_wl_s, stride_wl_b, stride_wl_h,
     stride_wacc_s, stride_wacc_b, stride_wacc_h, stride_wacc_d,
-    B, H, N_KV, GROUP_SIZE,
+    B, H, N_KV,
     alibi_slopes_ptr,
+    GROUP_SIZE: tl.constexpr,           # constexpr so the GQA/MQA branch specialises
     BIAS_KIND: tl.constexpr,
-    HEAD_DIM: tl.constexpr,
-    BLOCK_N:  tl.constexpr,
+    HEAD_DIM:  tl.constexpr,
+    BLOCK_N:   tl.constexpr,
     NUM_SPLITS: tl.constexpr,
+    BLOCK_H:   tl.constexpr,            # padded to 16 for tl.dot compatibility
 ):
-    """One program per (split_id, batch * Q-head). Processes one KV chunk
-    and writes its partial (m, l, acc) to the workspace.
+    """One program per (split_id, batch * head-chunk).
 
-    Scalar single-query variant: the dot-product is a broadcast-multiply
-    + reduce (no tensor cores for the Q@K^T step), but the BLOCK_N tiles
-    are still vectorised and the V projection uses dense tensor patterns.
+    Each program owns ``chunk_size`` consecutive query heads that all
+    share a single ``h_kv``. Q is loaded into a (BLOCK_H, HEAD_DIM) tile
+    where BLOCK_H >= chunk_size (cyclic-replicated as needed); the dot
+    products use tensor cores; partial-result stores are masked so only
+    the first ``chunk_size`` rows write to the workspace.
     """
     split_id = tl.program_id(0)
     pid_bh   = tl.program_id(1)
-    b    = pid_bh // H
-    h    = pid_bh %  H
-    h_kv = h // GROUP_SIZE
+
+    # chunk_size = min(GROUP_SIZE, BLOCK_H). For GQA (group_size 4 / 8),
+    # chunk_size = group_size and one program covers one whole group with
+    # BLOCK_H - chunk_size padding rows. For MQA (group_size >= 16),
+    # chunk_size = BLOCK_H and multiple programs cover one big group.
+    if GROUP_SIZE <= BLOCK_H:
+        chunk_size: tl.constexpr = GROUP_SIZE
+    else:
+        chunk_size: tl.constexpr = BLOCK_H
+    n_chunks  = H // chunk_size
+
+    b      = pid_bh // n_chunks
+    chunk  = pid_bh %  n_chunks
+    h_base = chunk * chunk_size
+
+    # Per-row Q head index. For GROUP_SIZE < BLOCK_H we cyclic-replicate
+    # the group; for GROUP_SIZE >= BLOCK_H we just take BLOCK_H
+    # consecutive heads (all in the same group).
+    offs_within = tl.arange(0, BLOCK_H)
+    if GROUP_SIZE < BLOCK_H:
+        offs_h_local = offs_within % GROUP_SIZE
+        is_unique    = offs_within < GROUP_SIZE
+    else:
+        offs_h_local = offs_within
+        is_unique    = offs_within < BLOCK_H            # all rows real
+    offs_h = h_base + offs_h_local
+
+    # h_kv is the same for every head in this program
+    h_kv = h_base // GROUP_SIZE
 
     offs_n = tl.arange(0, BLOCK_N)
     offs_d = tl.arange(0, HEAD_DIM)
 
-    q_ptrs = Q_ptr + b * stride_qb + h * stride_qh + offs_d * stride_qd
+    # Load Q tile: (BLOCK_H, HEAD_DIM) -- one row per Q head (or replicated)
+    q_ptrs = Q_ptr + b * stride_qb + offs_h[:, None] * stride_qh + offs_d[None, :] * stride_qd
     q = tl.load(q_ptrs)
 
+    # Split bounds along the KV axis
     split_len = (N_KV + NUM_SPLITS - 1) // NUM_SPLITS
     n_lo = split_id * split_len
     n_hi = tl.minimum(n_lo + split_len, N_KV)
@@ -83,11 +120,12 @@ def attnfuse_decode_split_kernel(
     V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
 
     if BIAS_KIND == 1:
-        slope = tl.load(alibi_slopes_ptr + h)
+        slope = tl.load(alibi_slopes_ptr + offs_h)      # (BLOCK_H,) (replicated for GQA)
 
-    m_i = -float("inf")
-    l_i = 0.0
-    acc = tl.zeros([HEAD_DIM], dtype=tl.float32)
+    # Online-softmax accumulators (per row)
+    m_i = tl.full([BLOCK_H], value=-float("inf"), dtype=tl.float32)
+    l_i = tl.zeros([BLOCK_H], dtype=tl.float32)
+    acc = tl.zeros([BLOCK_H, HEAD_DIM], dtype=tl.float32)
 
     for n_start in range(n_lo, n_hi, BLOCK_N):
         cur_n = n_start + offs_n
@@ -95,34 +133,40 @@ def attnfuse_decode_split_kernel(
 
         k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
         v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
-        k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
+        k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)   # (BLOCK_N, HEAD_DIM)
         v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
 
-        s = tl.sum(q[None, :].to(tl.float32) * k.to(tl.float32), axis=1) * sm_scale
+        # Q @ K^T using tensor cores: (BLOCK_H, HEAD_DIM) @ (HEAD_DIM, BLOCK_N)
+        s = tl.dot(q, tl.trans(k)) * sm_scale
 
         if BIAS_KIND == 1:
             dist = tl.abs((N_KV - 1) - cur_n)
-            s = s + (-slope.to(tl.float32) * dist.to(tl.float32))
+            s = s + (-slope[:, None].to(tl.float32) *
+                     dist[None, :].to(tl.float32))
 
-        s = tl.where(n_in_bounds, s, -float("inf"))
+        s = tl.where(n_in_bounds[None, :], s, -float("inf"))
 
-        block_max = tl.max(s, axis=0)
+        # Online softmax update (per row)
+        block_max = tl.max(s, axis=1)
         m_new = tl.maximum(m_i, block_max)
         is_all_masked = (block_max == float("-inf"))
         alpha = tl.where(is_all_masked, 1.0, tl.exp(m_i - m_new))
-        safe_m_new = tl.where(is_all_masked, 0.0, m_new)
-        p = tl.exp(s - safe_m_new)
-        l_i = alpha * l_i + tl.sum(p, axis=0)
-        acc = acc * alpha + tl.sum(p[:, None] * v.to(tl.float32), axis=0)
+        safe_m_new = tl.where(is_all_masked, tl.zeros_like(m_new), m_new)
+        p = tl.exp(s - safe_m_new[:, None])
+        l_i = alpha * l_i + tl.sum(p, axis=1)
+        # P @ V using tensor cores: (BLOCK_H, BLOCK_N) @ (BLOCK_N, HEAD_DIM)
+        acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
         m_i = m_new
 
-    wm_ptr  = Wm_ptr  + split_id * stride_wm_s  + b * stride_wm_b  + h * stride_wm_h
-    wl_ptr  = Wl_ptr  + split_id * stride_wl_s  + b * stride_wl_b  + h * stride_wl_h
-    wacc_p  = Wacc_ptr + split_id * stride_wacc_s + b * stride_wacc_b + h * stride_wacc_h \\
-              + offs_d * stride_wacc_d
-    tl.store(wm_ptr, m_i)
-    tl.store(wl_ptr, l_i)
-    tl.store(wacc_p, acc)
+    # Write partial (m, l, acc) but only for is_unique rows -- duplicates
+    # produced by the GQA-replication trick are silently dropped here.
+    wm_ptr   = Wm_ptr  + split_id * stride_wm_s  + b * stride_wm_b  + offs_h * stride_wm_h
+    wl_ptr   = Wl_ptr  + split_id * stride_wl_s  + b * stride_wl_b  + offs_h * stride_wl_h
+    wacc_ptr = (Wacc_ptr + split_id * stride_wacc_s + b * stride_wacc_b
+                + offs_h[:, None] * stride_wacc_h + offs_d[None, :] * stride_wacc_d)
+    tl.store(wm_ptr,   m_i, mask=is_unique)
+    tl.store(wl_ptr,   l_i, mask=is_unique)
+    tl.store(wacc_ptr, acc, mask=is_unique[:, None])
 
 
 @triton.jit
@@ -145,30 +189,24 @@ def attnfuse_decode_combine_kernel(
     offs_d = tl.arange(0, HEAD_DIM)
     offs_s = tl.arange(0, NUM_SPLITS)
 
-    # Load all splits' m and l
     mp = Wm_ptr + offs_s * stride_wm_s + b * stride_wm_b + h * stride_wm_h
     lp = Wl_ptr + offs_s * stride_wl_s + b * stride_wl_b + h * stride_wl_h
-    m_all = tl.load(mp)                                    # (NUM_SPLITS,)
-    l_all = tl.load(lp)                                    # (NUM_SPLITS,)
+    m_all = tl.load(mp)                                  # (NUM_SPLITS,)
+    l_all = tl.load(lp)
 
-    # Reduction: m_final = max(m_all); alpha_i = exp(m_i - m_final);
-    # l_final = sum(alpha_i * l_i); acc_final = sum(alpha_i * acc_i) / l_final
     m_final = tl.max(m_all, axis=0)
     alpha   = tl.exp(m_all - m_final)
     l_final = tl.sum(alpha * l_all, axis=0)
 
-    # Load and combine acc
-    # wacc[s, b, h, d] = Wacc_ptr + s*stride_s + b*stride_b + h*stride_h + d*stride_d
     wacc_p = (Wacc_ptr
               + offs_s[:, None] * stride_wacc_s
               + b * stride_wacc_b
               + h * stride_wacc_h
               + offs_d[None, :] * stride_wacc_d)
-    acc_all = tl.load(wacc_p)                              # (NUM_SPLITS, HEAD_DIM)
+    acc_all = tl.load(wacc_p)                            # (NUM_SPLITS, HEAD_DIM)
     weighted = acc_all * alpha[:, None]
     acc_final = tl.sum(weighted, axis=0) / l_final
 
-    # Write final output
     o_ptr = O_ptr + b * stride_ob + h * stride_oh + offs_d * stride_od
     tl.store(o_ptr, acc_final.to(O_ptr.dtype.element_ty))
 '''

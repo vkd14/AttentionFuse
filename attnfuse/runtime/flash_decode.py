@@ -95,6 +95,9 @@ def _pick_num_splits(B: int, H_q: int, N_kv: int) -> int:
     return max(1, min(p, 32))
 
 
+BLOCK_H_FOR_DECODE = 16   # Triton tl.dot needs M, N, K >= 16
+
+
 def run_flash_decode(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
                      V: torch.Tensor, sm_scale: float,
                      bias_kind: int, num_heads_kv: int,
@@ -104,7 +107,21 @@ def run_flash_decode(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
     B, H_q, _, D = Q.shape
     _, H_kv, N_kv, _ = K.shape
     group_size = H_q // H_kv
-    num_splits = _pick_num_splits(B, H_q, N_kv)
+    # chunk_size: how many distinct Q heads each split-program owns.
+    # GQA case (group_size < 16): one program per group, BLOCK_H pads with
+    # cyclic replicas. MQA / large-group case: program covers BLOCK_H of the
+    # group at a time.
+    chunk_size = min(group_size, BLOCK_H_FOR_DECODE)
+    if H_q % chunk_size != 0:
+        # Pathological shape: fall back to scalar single-head per program
+        # by setting BLOCK_H=1 path. (Triton tl.dot won't work; we'd need
+        # the previous scalar kernel for this. For now just bail.)
+        raise RuntimeError(
+            f"Flash Decoding requires H_q divisible by min(group_size, 16); "
+            f"got H_q={H_q}, group_size={group_size}"
+        )
+    num_h_chunks = H_q // chunk_size
+    num_splits = _pick_num_splits(B, num_h_chunks, N_kv)
 
     # BLOCK_N choice: smaller for split kernels (each split is shorter).
     block_n = 128 if D >= 128 else 64
@@ -129,7 +146,7 @@ def run_flash_decode(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
         slopes = _placeholder_slopes(str(Q.device), str(Q.dtype))
 
     # --- Phase 1: split kernel ---
-    grid_split = (num_splits, B * H_q)
+    grid_split = (num_splits, B * num_h_chunks)
     mod.attnfuse_decode_split_kernel[grid_split](
         Q, K, V,
         workspace_m, workspace_l, workspace_acc,
@@ -141,12 +158,14 @@ def run_flash_decode(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
         workspace_l.stride(0), workspace_l.stride(1), workspace_l.stride(2),
         workspace_acc.stride(0), workspace_acc.stride(1),
         workspace_acc.stride(2), workspace_acc.stride(3),
-        B, H_q, N_kv, group_size,
+        B, H_q, N_kv,
         slopes,
+        GROUP_SIZE=group_size,
         BIAS_KIND=bias_kind,
         HEAD_DIM=D,
         BLOCK_N=block_n,
         NUM_SPLITS=num_splits,
+        BLOCK_H=BLOCK_H_FOR_DECODE,
         num_warps=4, num_stages=2,
     )
 
