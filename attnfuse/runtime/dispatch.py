@@ -75,6 +75,7 @@ def run_attention(
     cos: Optional[torch.Tensor] = None,
     sin: Optional[torch.Tensor] = None,
     out: Optional[torch.Tensor] = None,
+    save_lse: Optional[torch.Tensor] = None,   # if set, write L=m+log(l) into this (B,H_q,N_q) fp32 buffer
 ) -> torch.Tensor:
     """Launch the fused kernel and return the output tensor (B, H, N, D).
 
@@ -115,9 +116,10 @@ def run_attention(
     # splitting the KV axis saturates the GPU's SMs better than launching
     # one program per (b, h_q). Restricted to the no-mask + (none / ALiBi
     # bias) + no-RoPE subset, which covers the common autoregressive
-    # decode pattern.
+    # decode pattern. Skipped when the caller wants the L tensor (backward
+    # path) because the decode kernels don't currently save it.
     from .flash_decode import can_use_flash_decode, run_flash_decode
-    if can_use_flash_decode(graph, Q, K):
+    if save_lse is None and can_use_flash_decode(graph, Q, K):
         if out is None:
             out = torch.empty_like(Q)
         return run_flash_decode(graph, Q, K, V, bundle.sm_scale,
@@ -171,6 +173,16 @@ def run_attention(
         c = _placeholder_rope(str(Q.device), str(Q.dtype))
         sn = _placeholder_rope(str(Q.device), str(Q.dtype))
 
+    if save_lse is not None:
+        L = save_lse
+        save_l_flag = 1
+    else:
+        L = _placeholder_rope(str(Q.device), "float32")  # tiny dummy buffer (fp32)
+        save_l_flag = 0
+
+    cexprs = dict(bundle.cexprs)
+    cexprs["SAVE_L"] = save_l_flag
+
     bundle.jit_fn[grid](
         Q, K, V, out,
         bundle.sm_scale,
@@ -185,7 +197,9 @@ def run_attention(
         b.stride(0), b.stride(1), b.stride(2), b.stride(3),
         c, sn,
         c.stride(0), c.stride(1),
-        **bundle.cexprs,
+        L,
+        L.stride(0), L.stride(1) if L.dim() >= 2 else 1, L.stride(-1),
+        **cexprs,
         **bundle.meta,
     )
     return out

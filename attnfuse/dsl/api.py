@@ -10,6 +10,8 @@ import functools
 import os
 from typing import Callable
 
+import torch
+
 from ..ir.high_level import (
     Expr,
     TensorSym,
@@ -130,6 +132,24 @@ def attention(fn: Callable) -> Callable:
                 print(format_graph(graph))
         if return_graph:
             return graph
+
+        # Route through autograd.Function when any input requires gradient.
+        # Inference paths (no requires_grad) skip the L allocation entirely
+        # via the direct run_attention call.
+        needs_grad = (
+            isinstance(Q, torch.Tensor) and Q.requires_grad
+        ) or (
+            isinstance(K, torch.Tensor) and K.requires_grad
+        ) or (
+            isinstance(V, torch.Tensor) and V.requires_grad
+        )
+        if needs_grad:
+            from ..runtime.autograd import AttnFuseFunction
+            from ..runtime.backward import can_backward
+            if can_backward(graph):
+                return AttnFuseFunction.apply(graph, Q, K, V, bias, cos, sin)
+            # Outside the supported backward scope: fall through to the
+            # inference path so forward still works (no gradient will flow).
 
         from ..runtime.dispatch import run_attention
         return run_attention(graph, Q, K, V, bias=bias, cos=cos, sin=sin, **kwargs)

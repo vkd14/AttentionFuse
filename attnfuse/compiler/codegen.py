@@ -78,6 +78,8 @@ def attnfuse_fwd_kernel(
     stride_biasb, stride_biash, stride_biasm, stride_biasn,
     cos_ptr, sin_ptr,                  # only read when ROPE_KIND == 1; shape (N, D)
     stride_rope_n, stride_rope_d,
+    L_ptr,                             # only written when SAVE_L == 1; shape (B, H_q, N_q)
+    stride_lb, stride_lh, stride_lm,
     WINDOW: tl.constexpr,              # only read when MASK_KIND  == 2
     HEAD_DIM: tl.constexpr,
     BLOCK_M:  tl.constexpr,
@@ -87,6 +89,7 @@ def attnfuse_fwd_kernel(
     NORM_KIND: tl.constexpr,           # 0 softmax, 1 relu
     ROPE_KIND: tl.constexpr,           # 0 none, 1 fused RoPE (Su et al., 2021)
     SKIP_EMPTY: tl.constexpr,
+    SAVE_L:   tl.constexpr,            # 0 inference, 1 save L=m+log(l) for backward
 ):
     """One program per (batch, query-head, m_block).
     For GQA/MQA, each query head h maps to KV head h_kv = h // GROUP_SIZE.
@@ -363,10 +366,18 @@ def attnfuse_fwd_kernel(
                 acc = acc + tl.dot(p.to(v.dtype), v).to(tl.float32)
 
     # Final normalisation
-    out = acc / tl.where(l_i == 0.0, 1.0, l_i)[:, None]
+    safe_l = tl.where(l_i == 0.0, 1.0, l_i)
+    out = acc / safe_l[:, None]
 
     o_ptrs = O_bh + offs_m[:, None] * stride_om + offs_d[None, :] * stride_od
     tl.store(o_ptrs, out.to(O_ptr.dtype.element_ty), mask=q_mask)
+
+    # Save the log-sum-exp L = m + log(l) for the backward pass.  Stored in fp32
+    # to match the accumulator precision; rows beyond N_Q are masked out.
+    if SAVE_L == 1:
+        L_val = m_i + tl.log(safe_l)
+        l_ptrs = L_ptr + b * stride_lb + h * stride_lh + offs_m * stride_lm
+        tl.store(l_ptrs, L_val, mask=offs_m < N_Q)
 '''
 
 
@@ -388,6 +399,7 @@ def kernel_constexprs(kernel: TiledKernel) -> dict:
         "ROPE_KIND": kernel.rope_kind,
         "SKIP_EMPTY": int(kernel.config.skip_full_mask_blocks),
         "WINDOW": kernel.mask_window or 0,
+        "SAVE_L": 0,                   # default: inference; backward dispatch overrides
     }
 
 
