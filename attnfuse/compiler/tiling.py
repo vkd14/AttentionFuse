@@ -74,6 +74,66 @@ _AMPERE_TABLE_F32: dict[int, TileConfig] = {
 }
 
 
+def _detect_hopper() -> bool:
+    """True on sm_90 (Hopper, H100 / H200). Used to pick a separate tile table
+    that exploits the larger SMEM (228 KB vs Ampere's 101 KB), more pipeline
+    stages, and bigger tile sizes that Hopper's WGMMA atomically supports.
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+        major, _ = torch.cuda.get_device_capability(0)
+        return major >= 9
+    except Exception:
+        return False
+
+
+_IS_HOPPER = _detect_hopper()
+
+
+# Hopper (sm_90) tile table. Hopper has ~228 KB of SMEM per SM, double-rate
+# matmul via WGMMA, TMA descriptors for async memory ops, and a higher
+# default num_stages sweet spot. Bigger BLOCK_M takes advantage of WGMMA's
+# 64-aligned M dimension; larger num_stages amortises the higher SM count
+# (132 SMs vs Ampere's 82). These defaults are starting points -- a
+# benchmark sweep on H100 hardware should refine them.
+_HOPPER_TABLE_F16: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=8, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=8, num_stages=3),
+    128: TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=8, num_stages=3),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=64,  num_warps=8, num_stages=2),
+}
+
+_HOPPER_TABLE_F16_SPARSE: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    128: TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
+}
+
+_HOPPER_TABLE_F16_ROPE: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    128: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
+}
+
+_HOPPER_TABLE_F32: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    128: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=8, num_stages=2),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
+}
+
+_HOPPER_TABLE_F32_ROPE: dict[int, TileConfig] = {
+    32:  TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
+    64:  TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
+    128: TileConfig(BLOCK_M=64,  BLOCK_N=32, num_warps=4, num_stages=2),
+    256: TileConfig(BLOCK_M=32,  BLOCK_N=32, num_warps=4, num_stages=2),
+}
+
+
 def _graph_has_rope(graph: Graph) -> bool:
     score_nodes = [n for n, _ in graph.walk() if isinstance(n, ScoreOp)]
     return any(s.rope for s in score_nodes)
@@ -104,14 +164,24 @@ def choose_tile_config(graph: Graph) -> TileConfig:
     head_dim = graph.q.head_dim
     has_rope = _graph_has_rope(graph)
 
-    if graph.q.dtype == "float32":
-        table = _AMPERE_TABLE_F32_ROPE if has_rope else _AMPERE_TABLE_F32
-    elif has_rope:
-        table = _AMPERE_TABLE_F16_ROPE
-    elif _graph_is_sparse(graph):
-        table = _AMPERE_TABLE_F16_SPARSE
+    if _IS_HOPPER:
+        if graph.q.dtype == "float32":
+            table = _HOPPER_TABLE_F32_ROPE if has_rope else _HOPPER_TABLE_F32
+        elif has_rope:
+            table = _HOPPER_TABLE_F16_ROPE
+        elif _graph_is_sparse(graph):
+            table = _HOPPER_TABLE_F16_SPARSE
+        else:
+            table = _HOPPER_TABLE_F16
     else:
-        table = _AMPERE_TABLE_F16
+        if graph.q.dtype == "float32":
+            table = _AMPERE_TABLE_F32_ROPE if has_rope else _AMPERE_TABLE_F32
+        elif has_rope:
+            table = _AMPERE_TABLE_F16_ROPE
+        elif _graph_is_sparse(graph):
+            table = _AMPERE_TABLE_F16_SPARSE
+        else:
+            table = _AMPERE_TABLE_F16
 
     cfg = table.get(head_dim)
     if cfg is None:
