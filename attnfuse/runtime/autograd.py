@@ -28,6 +28,34 @@ from .dispatch import run_attention
 from .backward import run_backward, can_backward
 
 
+class AttnFuseBlockSparseFunction(torch.autograd.Function):
+    """Autograd binding for the block-sparse forward/backward path."""
+
+    @staticmethod
+    def forward(ctx, Q, K, V, block_mask, bias_kind: int):
+        from .block_mask import run_block_sparse
+        B, H_q, N_Q, D = Q.shape
+        sm_scale = 1.0 / (D ** 0.5)
+        L = torch.empty(B, H_q, N_Q, dtype=torch.float32, device=Q.device)
+        out = run_block_sparse(Q, K, V, block_mask, sm_scale,
+                               bias_kind=bias_kind, save_lse=L)
+        ctx.block_mask = block_mask
+        ctx.sm_scale = sm_scale
+        ctx.bias_kind = bias_kind
+        ctx.save_for_backward(Q, K, V, out, L)
+        return out
+
+    @staticmethod
+    def backward(ctx, dO):
+        Q, K, V, O, L = ctx.saved_tensors
+        dO = dO.contiguous()
+        from .block_mask import run_block_sparse_backward
+        dQ, dK, dV = run_block_sparse_backward(
+            Q, K, V, O, L, dO, ctx.block_mask, ctx.sm_scale, ctx.bias_kind)
+        # Returns must match forward args: (Q, K, V, block_mask, bias_kind)
+        return dQ, dK, dV, None, None
+
+
 class AttnFuseFunction(torch.autograd.Function):
     """Autograd binding: forward saves L, backward calls run_backward."""
 

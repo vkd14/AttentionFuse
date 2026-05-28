@@ -127,3 +127,60 @@ def test_block_sparse_missing_mask_raises(qkv):
     Q, K, V = qkv
     with pytest.raises(RuntimeError, match="block_mask"):
         bs_attn(Q, K, V)
+
+
+# --- backward tests --------------------------------------------------------
+
+def _backward_check(pred, dtype):
+    """Run AttnFuse block-sparse forward+backward and compare to a naive
+    PyTorch reference that applies the same element-wise mask."""
+    torch.manual_seed(0)
+    Q = torch.randn(B, H, N, D, device="cuda", dtype=dtype, requires_grad=True)
+    K = torch.randn_like(Q, requires_grad=True)
+    V = torch.randn_like(Q, requires_grad=True)
+    Qr, Kr, Vr = (t.detach().clone().requires_grad_() for t in (Q, K, V))
+
+    mask = af.create_block_mask(pred, N, N, BLOCK_M, BLOCK_N)
+
+    @af.attention
+    def bs(Q, K, V):
+        return af.softmax(af.block_sparse(af.scaled_dot_product(Q, K))) @ V
+
+    O = bs(Q, K, V, block_mask=mask)
+    dO = torch.randn_like(O)
+    O.backward(dO)
+
+    elem_mask = _elem_mask_from(pred)
+    S = torch.einsum("bhid,bhjd->bhij", Qr.float(), Kr.float()) / (D ** 0.5)
+    S = S.masked_fill(~elem_mask, float("-inf"))
+    P = torch.softmax(S, dim=-1).to(Qr.dtype)
+    O_ref = P @ Vr
+    O_ref.backward(dO)
+
+    tol = 2e-2 if dtype == torch.float16 else 4e-2
+    assert (O - O_ref).abs().max().item() < tol
+    assert (Q.grad - Qr.grad).abs().max().item() < tol
+    assert (K.grad - Kr.grad).abs().max().item() < tol
+    assert (V.grad - Vr.grad).abs().max().item() < tol
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_block_sparse_backward_bigbird(dtype):
+    def bigbird(q, kv):
+        qb = q // BLOCK_M; kb = kv // BLOCK_N
+        return (qb == 0) | (kb == 0) | ((qb - kb).abs() <= 1)
+    _backward_check(bigbird, dtype)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_block_sparse_backward_strided(dtype):
+    def strided(q, kv):
+        qb = q // BLOCK_M; kb = kv // BLOCK_N
+        return (qb + kb) % 2 == 0
+    _backward_check(strided, dtype)
+
+
+def test_block_sparse_backward_local_window():
+    def local(q, kv):
+        return ((q // BLOCK_M) - (kv // BLOCK_N)).abs() <= 1
+    _backward_check(local, torch.float16)

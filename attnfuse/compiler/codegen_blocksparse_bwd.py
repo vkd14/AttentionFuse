@@ -1,81 +1,39 @@
-"""Codegen for the FlashAttention-2-style backward kernels.
+"""Backward kernels for block-sparse attention.
 
-Algorithm (Dao 2023, FlashAttention-2 backward):
+Mirrors the dense FA2-style backward in attnfuse/compiler/codegen_backward.py
+but iterates over the active block lists stored on the BlockMask:
 
-  Forward saves L = m + log(sum(exp(s - m)))  per row (B, H_q, N_q).
+  * dK/dV kernel
+      Grid: (n_kv_blocks, B * H_kv)
+      For each n-block, loops over the active m-blocks for that
+      n-block (the K-major transpose list q_indices / q_num_blocks).
+      Accumulates dK and dV; for GQA sums across the GROUP_SIZE Q heads
+      in the inner loop (same trick as the dense backward).
 
-  Backward inputs:  Q, K, V, O, L, dO
-  Backward outputs: dQ (B, H_q, N_q, D),  dK, dV (B, H_kv, N_kv, D)
+  * dQ kernel
+      Grid: (n_q_blocks, B * H_q)
+      For each m-block, loops over the active n-blocks for that
+      m-block (the Q-major list -- shared with forward).
+      Accumulates dQ.
 
-  Pre-compute:      D = rowsum(dO * O)            shape (B, H_q, N_q)
-
-  Per (i, j) tile:  S  = Q_i K_j^T * scale        (apply mask, bias)
-                    P  = exp(S - L_i)             (recompute attention probs)
-                    dV_j += P^T @ dO_i
-                    dP = dO_i @ V_j^T
-                    dS = P * (dP - D_i[:, None])
-                    dK_j += dS^T @ Q_i * scale
-                    dQ_i += dS @ K_j * scale
-
-We compile TWO kernels:
-
-  attnfuse_bwd_dkv_kernel
-    Grid: (cdiv(N_kv, BLOCK_N),  B * H_kv)
-    Holds K_j, V_j in registers across an m-loop that sweeps every
-    (b, h_q-in-group) pair. Atomic-free GQA reduction: the inner loop
-    sums over all H_q / H_kv query heads sharing this KV head.
-
-  attnfuse_bwd_dq_kernel
-    Grid: (cdiv(N_q, BLOCK_M), B * H_q)
-    Holds Q_i, O_i, dO_i, L_i in registers across an n-loop.
-
-Initial scope:
-  * MASK_KIND in {0 (dense), 1 (causal)}     -- sliding-window is future work
-  * BIAS_KIND in {0 (none), 1 (ALiBi)}       -- additive bias backward is straightforward
-                                                if needed; no current users
-  * NORM_KIND = 0 (softmax)
-  * ROPE_KIND = 0 (no fused RoPE in backward; pre-process if needed)
+The same Triton-3.1 fp32-dot workaround (bf16 cast on the dQ matmul)
+is used here -- the bug is in tl.dot's compilation, not in our kernel
+structure, and the workaround is unchanged.
 """
 
-_BACKWARD_KERNEL_SRC = '''
+_BLOCKSPARSE_BACKWARD_SRC = '''
 import triton
 import triton.language as tl
 
 
 @triton.jit
-def attnfuse_bwd_preproc_kernel(
-    O_ptr, dO_ptr, D_ptr,
-    stride_ob, stride_oh, stride_om, stride_od,
-    stride_dob, stride_doh, stride_dom, stride_dod,
-    stride_db, stride_dh, stride_dm,
-    B, H, N_Q,
-    HEAD_DIM: tl.constexpr,
-    BLOCK_M:  tl.constexpr,
-):
-    """Pre-compute D = rowsum(dO * O), shape (B, H_q, N_q) in fp32."""
-    pid_m  = tl.program_id(0)
-    pid_bh = tl.program_id(1)
-    b = pid_bh // H
-    h = pid_bh %  H
-
-    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    offs_d = tl.arange(0, HEAD_DIM)
-    m_mask = offs_m[:, None] < N_Q
-
-    o_ptrs  = O_ptr  + b * stride_ob  + h * stride_oh  + offs_m[:, None] * stride_om  + offs_d[None, :] * stride_od
-    do_ptrs = dO_ptr + b * stride_dob + h * stride_doh + offs_m[:, None] * stride_dom + offs_d[None, :] * stride_dod
-    o  = tl.load(o_ptrs,  mask=m_mask, other=0.0).to(tl.float32)
-    do = tl.load(do_ptrs, mask=m_mask, other=0.0).to(tl.float32)
-
-    D = tl.sum(o * do, axis=1)
-    d_ptrs = D_ptr + b * stride_db + h * stride_dh + offs_m * stride_dm
-    tl.store(d_ptrs, D, mask=offs_m < N_Q)
-
-
-@triton.jit
-def attnfuse_bwd_dkv_kernel(
+def attnfuse_bs_bwd_dkv_kernel(
     Q_ptr, K_ptr, V_ptr, dO_ptr, L_ptr, D_ptr,
     dK_ptr, dV_ptr,
+    # K-major active list: for each n-block, the m-blocks that attend to it
+    q_num_blocks_ptr,         # (n_kv_blocks,) int32
+    q_indices_ptr,            # (n_kv_blocks, max_q) int32
+    stride_qi_n, stride_qi_m,
     sm_scale,
     stride_qb, stride_qh, stride_qm, stride_qd,
     stride_kb, stride_kh, stride_kn, stride_kd,
@@ -88,19 +46,11 @@ def attnfuse_bwd_dkv_kernel(
     B, H_q, H_kv, N_Q, N_KV,
     alibi_slopes_ptr,
     GROUP_SIZE: tl.constexpr,
-    MASK_KIND:  tl.constexpr,
     BIAS_KIND:  tl.constexpr,
     HEAD_DIM:   tl.constexpr,
     BLOCK_M:    tl.constexpr,
     BLOCK_N:    tl.constexpr,
 ):
-    """dK/dV kernel: one program per (n_block, b*H_kv).
-
-    Each program holds (BLOCK_N, HEAD_DIM) K and V tiles and sweeps all
-    query rows. dK and dV are accumulated in fp32 then written. For GQA
-    each (n_block, b, h_kv) program inner-loops over the GROUP_SIZE Q heads
-    that share this KV head, naturally summing their dK / dV contributions.
-    """
     pid_n  = tl.program_id(0)
     pid_bk = tl.program_id(1)
     b    = pid_bk // H_kv
@@ -110,7 +60,6 @@ def attnfuse_bwd_dkv_kernel(
     offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     offs_d = tl.arange(0, HEAD_DIM)
 
-    # Load K_j, V_j once for this n-block
     K_bh = K_ptr + b * stride_kb + h_kv * stride_kh
     V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
     k_ptrs = K_bh + offs_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
@@ -119,11 +68,12 @@ def attnfuse_bwd_dkv_kernel(
     k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
     v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
 
-    # dK, dV accumulators (fp32)
     dk = tl.zeros([BLOCK_N, HEAD_DIM], dtype=tl.float32)
     dv = tl.zeros([BLOCK_N, HEAD_DIM], dtype=tl.float32)
 
-    # Inner loop: for each Q head sharing this KV head, sum contributions
+    q_count = tl.load(q_num_blocks_ptr + pid_n)
+    q_row_base = q_indices_ptr + pid_n * stride_qi_n
+
     for h_in_group in range(0, GROUP_SIZE):
         h_q = h_kv * GROUP_SIZE + h_in_group
 
@@ -135,16 +85,9 @@ def attnfuse_bwd_dkv_kernel(
         L_bh  = L_ptr  + b * stride_lb  + h_q * stride_lh
         D_bh  = D_ptr  + b * stride_db  + h_q * stride_dh
 
-        # For causal masks we can skip query blocks entirely below pid_n*BLOCK_N
-        # (no Q row at index m < pid_n*BLOCK_N can attend to ANY n in this block).
-        if MASK_KIND == 1:
-            m_lo = (pid_n * BLOCK_N) // BLOCK_M * BLOCK_M
-        else:
-            m_lo = 0
-        m_hi = N_Q
-
-        for m_start in range(m_lo, m_hi, BLOCK_M):
-            cur_m = m_start + offs_m
+        for i in range(q_count):
+            m_block = tl.load(q_row_base + i * stride_qi_m)
+            cur_m = m_block * BLOCK_M + offs_m
             m_in_bounds = cur_m < N_Q
 
             q_ptrs  = Q_bh  + cur_m[:, None] * stride_qm  + offs_d[None, :] * stride_qd
@@ -152,46 +95,24 @@ def attnfuse_bwd_dkv_kernel(
             q  = tl.load(q_ptrs,  mask=m_in_bounds[:, None], other=0.0)
             do = tl.load(do_ptrs, mask=m_in_bounds[:, None], other=0.0)
 
-            l_ptrs = L_bh + cur_m * stride_lm
-            d_ptrs = D_bh + cur_m * stride_dm
-            L_row  = tl.load(l_ptrs, mask=m_in_bounds, other=0.0)
-            D_row  = tl.load(d_ptrs, mask=m_in_bounds, other=0.0)
+            L_row = tl.load(L_bh + cur_m * stride_lm, mask=m_in_bounds, other=0.0)
+            D_row = tl.load(D_bh + cur_m * stride_dm, mask=m_in_bounds, other=0.0)
 
-            # Recompute S = Q K^T * scale
             s = tl.dot(q, tl.trans(k)) * sm_scale
-
-            # Bias
             if BIAS_KIND == 1:
                 dist = tl.abs(cur_m[:, None] - offs_n[None, :])
                 s = s + (-slope.to(tl.float32) * dist.to(tl.float32))
-
-            # Mask
-            if MASK_KIND == 1:                              # causal
-                causal_mask = cur_m[:, None] >= offs_n[None, :]
-                s = tl.where(causal_mask, s, -float("inf"))
             s = tl.where(m_in_bounds[:, None] & n_in_bounds[None, :],
                          s, -float("inf"))
-
-            # P = exp(S - L) -- using saved log-sum-exp
             p = tl.exp(s - L_row[:, None])
 
-            # dV += P^T @ dO
             dv = dv + tl.dot(tl.trans(p).to(do.dtype), do).to(tl.float32)
-
-            # dP = dO @ V^T
             dp = tl.dot(do, tl.trans(v)).to(tl.float32)
-
-            # dS = P * (dP - D[:, None])
             ds = p * (dp - D_row[:, None])
-
-            # dK += dS^T @ Q * scale  (scale applied at end)
             dk = dk + tl.dot(tl.trans(ds).to(q.dtype), q).to(tl.float32)
 
-    # Apply final scale to dK (Q^T @ dS was scaled in S = QK^T * scale, so dK has scale factor)
     dk = dk * sm_scale
 
-    # Store dK, dV (additive into pre-zeroed output; safe because each
-    # (b, h_kv, n_block) is owned by exactly one program)
     dK_bh = dK_ptr + b * stride_dkb + h_kv * stride_dkh
     dV_bh = dV_ptr + b * stride_dvb + h_kv * stride_dvh
     dk_ptrs = dK_bh + offs_n[:, None] * stride_dkn + offs_d[None, :] * stride_dkd
@@ -201,9 +122,16 @@ def attnfuse_bwd_dkv_kernel(
 
 
 @triton.jit
-def attnfuse_bwd_dq_kernel(
+def attnfuse_bs_bwd_dq_kernel(
     Q_ptr, K_ptr, V_ptr, dO_ptr, L_ptr, D_ptr,
     dQ_ptr,
+    # Q-major active list (same as forward)
+    kv_num_blocks_ptr,        # (n_q_blocks,) int32
+    kv_indices_ptr,           # (n_q_blocks, max_kv) int32
+    stride_kvi_q, stride_kvi_n,
+    full_kv_num_ptr,
+    full_kv_idx_ptr,
+    stride_fkvi_q, stride_fkvi_n,
     sm_scale,
     stride_qb, stride_qh, stride_qm, stride_qd,
     stride_kb, stride_kh, stride_kn, stride_kd,
@@ -215,13 +143,11 @@ def attnfuse_bwd_dq_kernel(
     B, H_q, H_kv, N_Q, N_KV,
     alibi_slopes_ptr,
     GROUP_SIZE: tl.constexpr,
-    MASK_KIND:  tl.constexpr,
     BIAS_KIND:  tl.constexpr,
     HEAD_DIM:   tl.constexpr,
     BLOCK_M:    tl.constexpr,
     BLOCK_N:    tl.constexpr,
 ):
-    """dQ kernel: one program per (m_block, b*H_q)."""
     pid_m  = tl.program_id(0)
     pid_bh = tl.program_id(1)
     b   = pid_bh // H_q
@@ -236,7 +162,6 @@ def attnfuse_bwd_dq_kernel(
     if BIAS_KIND == 1:
         slope = tl.load(alibi_slopes_ptr + h_q)
 
-    # Load Q_i, dO_i, L_i, D_i once
     Q_bh  = Q_ptr  + b * stride_qb  + h_q * stride_qh
     dO_bh = dO_ptr + b * stride_dob + h_q * stride_doh
     L_bh  = L_ptr  + b * stride_lb  + h_q * stride_lh
@@ -246,54 +171,60 @@ def attnfuse_bwd_dq_kernel(
     do_ptrs = dO_bh + offs_m[:, None] * stride_dom + offs_d[None, :] * stride_dod
     q  = tl.load(q_ptrs,  mask=m_in_bounds[:, None], other=0.0)
     do = tl.load(do_ptrs, mask=m_in_bounds[:, None], other=0.0)
-
     L_row = tl.load(L_bh + offs_m * stride_lm, mask=m_in_bounds, other=0.0)
     D_row = tl.load(D_bh + offs_m * stride_dm, mask=m_in_bounds, other=0.0)
 
     dq = tl.zeros([BLOCK_M, HEAD_DIM], dtype=tl.float32)
 
-    if MASK_KIND == 1:
-        n_hi = tl.minimum((pid_m + 1) * BLOCK_M, N_KV)
-    else:
-        n_hi = N_KV
-
     K_bh = K_ptr + b * stride_kb + h_kv * stride_kh
     V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
 
-    for n_start in range(0, n_hi, BLOCK_N):
-        cur_n = n_start + offs_n
+    # Iterate both "full" and "partial" active lists -- in the v1 mask all
+    # active tiles end up in full_kv_idx so the partial loop is usually
+    # empty, but we cover both for completeness.
+    full_count = tl.load(full_kv_num_ptr + pid_m)
+    full_base = full_kv_idx_ptr + pid_m * stride_fkvi_q
+    for i in range(full_count):
+        n_block = tl.load(full_base + i * stride_fkvi_n)
+        cur_n = n_block * BLOCK_N + offs_n
         n_in_bounds = cur_n < N_KV
-
         k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
         v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
         k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
         v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
 
         s = tl.dot(q, tl.trans(k)) * sm_scale
-
         if BIAS_KIND == 1:
             dist = tl.abs(offs_m[:, None] - cur_n[None, :])
             s = s + (-slope.to(tl.float32) * dist.to(tl.float32))
-
-        if MASK_KIND == 1:
-            causal_mask = offs_m[:, None] >= cur_n[None, :]
-            s = tl.where(causal_mask, s, -float("inf"))
         s = tl.where(m_in_bounds[:, None] & n_in_bounds[None, :],
                      s, -float("inf"))
-
         p = tl.exp(s - L_row[:, None])
         dp = tl.dot(do, tl.trans(v)).to(tl.float32)
         ds = p * (dp - D_row[:, None])
-        # Triton-3.1 workaround: tl.dot(ds_fp32, k_fp32) for this particular
-        # (M,N)@(N,D) reduction direction where the first operand is an
-        # in-register-computed expression silently produces wrong results,
-        # regardless of input_precision (we tested default/ieee/tf32x3 --
-        # all give max|err| ~3 in the gradient). The same matmul works
-        # correctly when both operands are freshly loaded from HBM.
-        # Casting to bf16 forces a re-layout via a tile reshape and the
-        # tensor-core path then gives correct results. bf16 has fp32's
-        # exponent range so the cast loses only mantissa precision (~5e-4
-        # in our tests, well within FA2's documented fp16 tolerance).
+        # Same Triton-3.1 bf16-cast workaround as the dense backward.
+        dq = dq + tl.dot(ds.to(tl.bfloat16), k.to(tl.bfloat16)).to(tl.float32)
+
+    partial_count = tl.load(kv_num_blocks_ptr + pid_m)
+    partial_base = kv_indices_ptr + pid_m * stride_kvi_q
+    for i in range(partial_count):
+        n_block = tl.load(partial_base + i * stride_kvi_n)
+        cur_n = n_block * BLOCK_N + offs_n
+        n_in_bounds = cur_n < N_KV
+        k_ptrs = K_bh + cur_n[:, None] * stride_kn + offs_d[None, :] * stride_kd
+        v_ptrs = V_bh + cur_n[:, None] * stride_vn + offs_d[None, :] * stride_vd
+        k = tl.load(k_ptrs, mask=n_in_bounds[:, None], other=0.0)
+        v = tl.load(v_ptrs, mask=n_in_bounds[:, None], other=0.0)
+
+        s = tl.dot(q, tl.trans(k)) * sm_scale
+        if BIAS_KIND == 1:
+            dist = tl.abs(offs_m[:, None] - cur_n[None, :])
+            s = s + (-slope.to(tl.float32) * dist.to(tl.float32))
+        s = tl.where(m_in_bounds[:, None] & n_in_bounds[None, :],
+                     s, -float("inf"))
+        p = tl.exp(s - L_row[:, None])
+        dp = tl.dot(do, tl.trans(v)).to(tl.float32)
+        ds = p * (dp - D_row[:, None])
         dq = dq + tl.dot(ds.to(tl.bfloat16), k.to(tl.bfloat16)).to(tl.float32)
 
     dq = dq * sm_scale
@@ -303,5 +234,5 @@ def attnfuse_bwd_dq_kernel(
 '''
 
 
-def get_backward_source() -> str:
-    return _BACKWARD_KERNEL_SRC
+def get_blocksparse_backward_source() -> str:
+    return _BLOCKSPARSE_BACKWARD_SRC

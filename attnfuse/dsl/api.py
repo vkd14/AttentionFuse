@@ -161,6 +161,17 @@ def attention(fn: Callable) -> Callable:
             biases = {b.kind for b in graph.collect_biases()}
             from ..ir.high_level import BiasKind as _BK
             bias_kind_int = 1 if _BK.ALIBI in biases else 0
+            # Route through autograd-tracking when any input has requires_grad,
+            # so .backward() invokes the block-sparse backward kernels.
+            needs_grad_bs = (
+                (isinstance(Q, torch.Tensor) and Q.requires_grad) or
+                (isinstance(K, torch.Tensor) and K.requires_grad) or
+                (isinstance(V, torch.Tensor) and V.requires_grad)
+            )
+            if needs_grad_bs:
+                from ..runtime.autograd import AttnFuseBlockSparseFunction
+                return AttnFuseBlockSparseFunction.apply(
+                    Q, K, V, block_mask, bias_kind_int)
             sm_scale = 1.0 / (Q.shape[-1] ** 0.5)
             return run_block_sparse(Q, K, V, block_mask, sm_scale,
                                      bias_kind=bias_kind_int)
