@@ -1,0 +1,18 @@
+# JIT compile-time  N=1024  device=NVIDIA H100 NVL
+  dense            first=  373.1 ms  cached=0.063 ms  overhead=5958x
+  causal           first=   20.3 ms  cached=0.062 ms  overhead=326x
+  sliding_w256     first=   20.6 ms  cached=0.063 ms  overhead=328x
+  causal_alibi     first=   19.5 ms  cached=0.063 ms  overhead=310x
+  causal_rope      first=   20.3 ms  cached=0.080 ms  overhead=254x
+
+[ok] wrote results/h100_2026-05-29/jit_compile.csv
+==[done   jit_compile  @ 0:01.84 elapsed]==
+# JIT compile-time  N=1024  device=NVIDIA H100 NVL
+  dense            first=  373.0 ms  cached=0.063 ms  overhead=5896x
+  causal           first=   20.9 ms  cached=0.131 ms  overhead=159x
+  sliding_w256     first=   22.1 ms  cached=0.090 ms  overhead=244x
+  causal_alibi     first=   20.1 ms  cached=0.132 ms  overhead=153x
+  causal_rope      first=   19.6 ms  cached=0.080 ms  overhead=246x
+
+[ok] wrote results/h100_2026-05-29/jit_compile.csv
+==[done   jit_compile  @ 0:01.88 elapsed]==

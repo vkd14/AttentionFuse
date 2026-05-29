@@ -1,0 +1,148 @@
+# Composition bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:01:11
+causal  512  attnfuse  0.063  25.50  1.00 
+causal  512  flex  0.050  32.52  0.78 
+causal_alibi  512  attnfuse  0.064  25.08  1.00 
+causal_alibi  512  flex  0.051  31.79  0.79 
+causal_rope  512  attnfuse  0.066  24.27  1.00 
+causal_rope  512  flex  0.144  11.21  2.16 
+causal_rope_alibi  512  attnfuse  0.069  23.32  1.00 
+causal_rope_alibi  512  flex  0.152  10.58  2.20 
+causal  1024  attnfuse  0.084  76.32  1.00 
+causal  1024  flex  0.050  127.70  0.60 
+causal_alibi  1024  attnfuse  0.089  72.21  1.00 
+causal_alibi  1024  flex  0.062  103.51  0.70 
+causal_rope  1024  attnfuse  0.117  54.97  1.00 
+causal_rope  1024  flex  0.155  41.51  1.32 
+causal_rope_alibi  1024  attnfuse  0.122  52.68  1.00 
+causal_rope_alibi  1024  flex  0.167  38.59  1.36 
+causal  2048  attnfuse  0.243  105.88  1.00 
+causal  2048  flex  0.124  207.71  0.51 
+causal_alibi  2048  attnfuse  0.255  101.20  1.00 
+causal_alibi  2048  flex  0.173  148.69  0.68 
+causal_rope  2048  attnfuse  0.340  75.80  1.00 
+causal_rope  2048  flex  0.301  85.75  0.88 
+causal_rope_alibi  2048  attnfuse  0.354  72.77  1.00 
+causal_rope_alibi  2048  flex  0.347  74.17  0.98 
+causal  4096  attnfuse  0.783  131.72  1.00 
+causal  4096  flex  0.401  256.89  0.51 
+causal_alibi  4096  attnfuse  0.825  124.96  1.00 
+causal_alibi  4096  flex  0.537  192.01  0.65 
+causal_rope  4096  attnfuse  1.092  94.38  1.00 
+causal_rope  4096  flex  0.753  136.93  0.69 
+causal_rope_alibi  4096  attnfuse  1.138  90.62  1.00 
+causal_rope_alibi  4096  flex  0.884  116.59  0.78 
+
+[ok] wrote results/h100_2026-05-29/composition_bench.csv
+==[done   composition_bench  @ 0:10.09 elapsed]==
+# Composition bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:05:26
+causal  512  attnfuse  0.062  26.00  1.00 
+causal  512  flex  0.050  32.25  0.81 
+causal_alibi  512  attnfuse  0.061  26.39  1.00 
+causal_alibi  512  flex  0.051  31.33  0.84 
+causal_rope  512  attnfuse  0.066  24.33  1.00 
+causal_rope  512  flex  0.140  11.54  2.11 
+causal_rope_alibi  512  attnfuse  0.067  24.04  1.00 
+causal_rope_alibi  512  flex  0.147  10.96  2.19 
+causal  1024  attnfuse  0.084  76.30  1.00 
+causal  1024  flex  0.050  129.47  0.59 
+causal_alibi  1024  attnfuse  0.089  72.47  1.00 
+causal_alibi  1024  flex  0.062  103.86  0.70 
+causal_rope  1024  attnfuse  0.117  55.26  1.00 
+causal_rope  1024  flex  0.148  43.67  1.27 
+causal_rope_alibi  1024  attnfuse  0.122  52.66  1.00 
+causal_rope_alibi  1024  flex  0.167  38.51  1.37 
+causal  2048  attnfuse  0.243  105.93  1.00 
+causal  2048  flex  0.124  207.02  0.51 
+causal_alibi  2048  attnfuse  0.255  101.12  1.00 
+causal_alibi  2048  flex  0.174  147.84  0.68 
+causal_rope  2048  attnfuse  0.342  75.28  1.00 
+causal_rope  2048  flex  0.301  85.49  0.88 
+causal_rope_alibi  2048  attnfuse  0.356  72.46  1.00 
+causal_rope_alibi  2048  flex  0.346  74.56  0.97 
+causal  4096  attnfuse  0.780  132.09  1.00 
+causal  4096  flex  0.402  256.32  0.52 
+causal_alibi  4096  attnfuse  0.862  119.64  1.00 
+causal_alibi  4096  flex  0.541  190.41  0.63 
+causal_rope  4096  attnfuse  1.097  93.94  1.00 
+causal_rope  4096  flex  0.752  136.99  0.69 
+causal_rope_alibi  4096  attnfuse  1.159  88.93  1.00 
+causal_rope_alibi  4096  flex  0.891  115.69  0.77 
+
+[ok] wrote results/h100_2026-05-29/composition_bench.csv
+==[done   composition_bench  @ 0:08.10 elapsed]==
+# Composition bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:35:26
+causal  512  attnfuse  0.063  25.50  1.00 
+causal  512  flex  0.051  31.34  0.81 
+causal_alibi  512  attnfuse  0.060  26.66  1.00 
+causal_alibi  512  flex  0.051  31.58  0.84 
+causal_rope  512  attnfuse  0.066  24.44  1.00 
+causal_rope  512  flex  0.142  11.38  2.15 
+causal_rope_alibi  512  attnfuse  0.068  23.75  1.00 
+causal_rope_alibi  512  flex  0.150  10.77  2.21 
+causal  1024  attnfuse  0.084  76.26  1.00 
+causal  1024  flex  0.050  128.85  0.59 
+causal_alibi  1024  attnfuse  0.089  72.24  1.00 
+causal_alibi  1024  flex  0.062  103.59  0.70 
+causal_rope  1024  attnfuse  0.117  55.20  1.00 
+causal_rope  1024  flex  0.149  43.38  1.27 
+causal_rope_alibi  1024  attnfuse  0.122  52.63  1.00 
+causal_rope_alibi  1024  flex  0.169  38.17  1.38 
+causal  2048  attnfuse  0.243  105.97  1.00 
+causal  2048  flex  0.125  206.70  0.51 
+causal_alibi  2048  attnfuse  0.256  100.55  1.00 
+causal_alibi  2048  flex  0.175  147.67  0.68 
+causal_rope  2048  attnfuse  0.341  75.54  1.00 
+causal_rope  2048  flex  0.303  85.00  0.89 
+causal_rope_alibi  2048  attnfuse  0.354  72.77  1.00 
+causal_rope_alibi  2048  flex  0.348  74.02  0.98 
+causal  4096  attnfuse  0.781  132.00  1.00 
+causal  4096  flex  0.402  256.43  0.51 
+causal_alibi  4096  attnfuse  0.860  119.83  1.00 
+causal_alibi  4096  flex  0.546  188.81  0.63 
+causal_rope  4096  attnfuse  1.095  94.15  1.00 
+causal_rope  4096  flex  0.751  137.33  0.69 
+causal_rope_alibi  4096  attnfuse  1.154  89.35  1.00 
+causal_rope_alibi  4096  flex  0.891  115.67  0.77 
+
+[ok] wrote results/h100_2026-05-29/composition_bench.csv
+==[done   composition_bench  @ 0:08.13 elapsed]==
+# Composition bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 21:10:10
+causal  512  attnfuse  0.070  23.17  1.00 
+causal  512  flex  0.050  31.99  0.72 
+causal_alibi  512  attnfuse  0.070  22.98  1.00 
+causal_alibi  512  flex  0.052  30.85  0.74 
+causal_rope  512  attnfuse  0.068  23.67  1.00 
+causal_rope  512  flex  0.142  11.33  2.09 
+causal_rope_alibi  512  attnfuse  0.068  23.65  1.00 
+causal_rope_alibi  512  flex  0.147  10.93  2.16 
+causal  1024  attnfuse  0.146  44.20  1.00 
+causal  1024  flex  0.051  125.55  0.35 
+causal_alibi  1024  attnfuse  0.148  43.63  1.00 
+causal_alibi  1024  flex  0.062  103.78  0.42 
+causal_rope  1024  attnfuse  0.117  55.10  1.00 
+causal_rope  1024  flex  0.149  43.36  1.27 
+causal_rope_alibi  1024  attnfuse  0.122  52.69  1.00 
+causal_rope_alibi  1024  flex  0.169  38.18  1.38 
+causal  2048  attnfuse  0.436  59.11  1.00 
+causal  2048  flex  0.125  205.72  0.29 
+causal_alibi  2048  attnfuse  0.415  62.16  1.00 
+causal_alibi  2048  flex  0.175  147.41  0.42 
+causal_rope  2048  attnfuse  0.341  75.56  1.00 
+causal_rope  2048  flex  0.304  84.70  0.89 
+causal_rope_alibi  2048  attnfuse  0.356  72.42  1.00 
+causal_rope_alibi  2048  flex  0.349  73.81  0.98 
+causal  4096  attnfuse  1.212  85.08  1.00 
+causal  4096  flex  0.403  255.87  0.33 
+causal_alibi  4096  attnfuse  1.188  86.74  1.00 
+causal_alibi  4096  flex  0.538  191.61  0.45 
+causal_rope  4096  attnfuse  1.093  94.33  1.00 
+causal_rope  4096  flex  0.753  136.82  0.69 
+causal_rope_alibi  4096  attnfuse  1.159  88.95  1.00 
+causal_rope_alibi  4096  flex  0.894  115.28  0.77 
+
+[ok] wrote results/h100_2026-05-29/composition_bench.csv
+==[done   composition_bench  @ 0:08.29 elapsed]==

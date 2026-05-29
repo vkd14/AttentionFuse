@@ -108,13 +108,19 @@ _HOPPER_TABLE_F16: dict[int, TileConfig] = {
     256: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=8, num_stages=2),
 }
 
-# Causal / SW / ALiBi -- the sweep showed BLOCK_M=256 wins on causal and
-# ALiBi at large N because the bigger Q tile amortises the Q-load cost
-# across more in-window KV blocks. Sliding-window prefers BLOCK_M=64
-# because its narrow per-query work doesn't justify the bigger Q tile.
+# Causal / SW / ALiBi. The 2026-05-29 H100 config_sweep showed the top 10
+# entries for causal at N=4096 all within 0.3% of each other (0.778-0.780 ms
+# -- bandwidth-bound regime), so the sweep was unable to actually
+# distinguish a winner. A direct A/B in benchmarks/flex_bench showed
+# BM=256 underperformed BM=128 by ~60% in production despite a 0.3%
+# sweep-time advantage -- the classic register-pressure / occupancy
+# mismatch that cold-run sweeps cannot detect. Sticking with BM=128
+# until a proper Hopper-targeted codegen (using Triton's native WGMMA
+# intrinsics with explicit tile-cluster sizing) replaces the workload-
+# agnostic Ampere kernel template.
 _HOPPER_TABLE_F16_SPARSE: dict[int, TileConfig] = {
-    32:  TileConfig(BLOCK_M=256, BLOCK_N=64, num_warps=4, num_stages=2),
-    64:  TileConfig(BLOCK_M=256, BLOCK_N=64, num_warps=4, num_stages=2),
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     128: TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     256: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
 }

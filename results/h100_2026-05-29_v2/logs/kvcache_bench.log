@@ -1,0 +1,120 @@
+# KV-cache bench  device=NVIDIA H100 NVL
+# B=1 dtype=torch.float16  2026-05-29 20:01:46
+model         cache backend            µs   TFLOPS  speedup
+llama3-8B      1024 attnfuse        88.3    0.190  (ref)
+llama3-8B      1024 flex            81.2    0.207  0.92x
+llama3-8B      4096 attnfuse        86.3    0.778  (ref)
+llama3-8B      4096 flex            84.1    0.798  0.97x
+llama3-8B     16384 attnfuse        88.6    3.029  (ref)
+llama3-8B     16384 flex            84.6    3.173  0.95x
+llama3-8B     32768 attnfuse        92.4    5.810  (ref)
+llama3-8B     32768 flex            89.6    5.989  0.97x
+llama3-70B     1024 attnfuse        87.7    0.383  (ref)
+llama3-70B     1024 flex            81.7    0.411  0.93x
+llama3-70B     4096 attnfuse        85.8    1.564  (ref)
+llama3-70B     4096 flex            83.5    1.607  0.97x
+llama3-70B    16384 attnfuse        90.8    5.912  (ref)
+llama3-70B    16384 flex            87.1    6.166  0.96x
+llama3-70B    32768 attnfuse        95.0   11.302  (ref)
+llama3-70B    32768 flex            87.3   12.300  0.92x
+falcon-MQA     1024 attnfuse        88.8    0.378  (ref)
+falcon-MQA     1024 flex            82.5    0.407  0.93x
+falcon-MQA     4096 attnfuse        88.5    1.517  (ref)
+falcon-MQA     4096 flex            83.7    1.603  0.95x
+falcon-MQA    16384 attnfuse        87.4    6.141  (ref)
+falcon-MQA    16384 flex            85.4    6.286  0.98x
+falcon-MQA    32768 attnfuse        87.3   12.293  (ref)
+falcon-MQA    32768 flex            84.6   12.696  0.97x
+
+[ok] wrote results/h100_2026-05-29/kvcache_bench.csv
+==[done   kvcache_bench  @ 0:23.23 elapsed]==
+# KV-cache bench  device=NVIDIA H100 NVL
+# B=1 dtype=torch.float16  2026-05-29 20:05:42
+model         cache backend            µs   TFLOPS  speedup
+llama3-8B      1024 attnfuse        92.4    0.181  (ref)
+llama3-8B      1024 flex            82.1    0.204  0.89x
+llama3-8B      4096 attnfuse        89.1    0.753  (ref)
+llama3-8B      4096 flex            85.2    0.788  0.96x
+llama3-8B     16384 attnfuse        93.5    2.871  (ref)
+llama3-8B     16384 flex            84.6    3.173  0.90x
+llama3-8B     32768 attnfuse        94.4    5.685  (ref)
+llama3-8B     32768 flex            86.7    6.194  0.92x
+llama3-70B     1024 attnfuse        89.7    0.374  (ref)
+llama3-70B     1024 flex            81.5    0.412  0.91x
+llama3-70B     4096 attnfuse        89.2    1.505  (ref)
+llama3-70B     4096 flex            80.7    1.662  0.91x
+llama3-70B    16384 attnfuse        91.5    5.866  (ref)
+llama3-70B    16384 flex            85.7    6.262  0.94x
+llama3-70B    32768 attnfuse        94.3   11.382  (ref)
+llama3-70B    32768 flex            86.6   12.405  0.92x
+falcon-MQA     1024 attnfuse        90.0    0.373  (ref)
+falcon-MQA     1024 flex            81.3    0.413  0.90x
+falcon-MQA     4096 attnfuse        90.7    1.480  (ref)
+falcon-MQA     4096 flex            84.5    1.589  0.93x
+falcon-MQA    16384 attnfuse        92.1    5.829  (ref)
+falcon-MQA    16384 flex            83.5    6.433  0.91x
+falcon-MQA    32768 attnfuse        91.6   11.728  (ref)
+falcon-MQA    32768 flex            83.5   12.854  0.91x
+
+[ok] wrote results/h100_2026-05-29/kvcache_bench.csv
+==[done   kvcache_bench  @ 0:09.97 elapsed]==
+# KV-cache bench  device=NVIDIA H100 NVL
+# B=1 dtype=torch.float16  2026-05-29 20:35:42
+model         cache backend            µs   TFLOPS  speedup
+llama3-8B      1024 attnfuse        90.1    0.186  (ref)
+llama3-8B      1024 flex            82.9    0.202  0.92x
+llama3-8B      4096 attnfuse        89.3    0.752  (ref)
+llama3-8B      4096 flex            83.2    0.807  0.93x
+llama3-8B     16384 attnfuse        92.3    2.909  (ref)
+llama3-8B     16384 flex            85.7    3.132  0.93x
+llama3-8B     32768 attnfuse        94.6    5.676  (ref)
+llama3-8B     32768 flex            88.0    6.101  0.93x
+llama3-70B     1024 attnfuse        87.5    0.383  (ref)
+llama3-70B     1024 flex            81.5    0.412  0.93x
+llama3-70B     4096 attnfuse        90.4    1.484  (ref)
+llama3-70B     4096 flex            82.2    1.632  0.91x
+llama3-70B    16384 attnfuse        92.0    5.837  (ref)
+llama3-70B    16384 flex            86.0    6.244  0.93x
+llama3-70B    32768 attnfuse        93.0   11.545  (ref)
+llama3-70B    32768 flex            87.1   12.329  0.94x
+falcon-MQA     1024 attnfuse        89.1    0.377  (ref)
+falcon-MQA     1024 flex            82.6    0.406  0.93x
+falcon-MQA     4096 attnfuse        90.3    1.487  (ref)
+falcon-MQA     4096 flex            84.1    1.595  0.93x
+falcon-MQA    16384 attnfuse        89.5    5.996  (ref)
+falcon-MQA    16384 flex            82.6    6.502  0.92x
+falcon-MQA    32768 attnfuse        89.4   12.012  (ref)
+falcon-MQA    32768 flex            83.4   12.871  0.93x
+
+[ok] wrote results/h100_2026-05-29/kvcache_bench.csv
+==[done   kvcache_bench  @ 0:10.11 elapsed]==
+# KV-cache bench  device=NVIDIA H100 NVL
+# B=1 dtype=torch.float16  2026-05-29 21:10:26
+model         cache backend            µs   TFLOPS  speedup
+llama3-8B      1024 attnfuse        89.9    0.187  (ref)
+llama3-8B      1024 flex            82.8    0.203  0.92x
+llama3-8B      4096 attnfuse        89.5    0.750  (ref)
+llama3-8B      4096 flex            86.0    0.780  0.96x
+llama3-8B     16384 attnfuse        92.8    2.892  (ref)
+llama3-8B     16384 flex            84.9    3.160  0.92x
+llama3-8B     32768 attnfuse        93.8    5.721  (ref)
+llama3-8B     32768 flex            88.3    6.081  0.94x
+llama3-70B     1024 attnfuse        88.5    0.379  (ref)
+llama3-70B     1024 flex            81.4    0.412  0.92x
+llama3-70B     4096 attnfuse        90.2    1.488  (ref)
+llama3-70B     4096 flex            80.9    1.659  0.90x
+llama3-70B    16384 attnfuse        93.0    5.775  (ref)
+llama3-70B    16384 flex            85.8    6.258  0.92x
+llama3-70B    32768 attnfuse        92.9   11.563  (ref)
+llama3-70B    32768 flex            86.1   12.471  0.93x
+falcon-MQA     1024 attnfuse        89.2    0.376  (ref)
+falcon-MQA     1024 flex            81.2    0.413  0.91x
+falcon-MQA     4096 attnfuse        89.2    1.505  (ref)
+falcon-MQA     4096 flex            82.9    1.619  0.93x
+falcon-MQA    16384 attnfuse        89.5    6.000  (ref)
+falcon-MQA    16384 flex            83.0    6.469  0.93x
+falcon-MQA    32768 attnfuse        90.6   11.848  (ref)
+falcon-MQA    32768 flex            83.3   12.893  0.92x
+
+[ok] wrote results/h100_2026-05-29/kvcache_bench.csv
+==[done   kvcache_bench  @ 0:10.07 elapsed]==
