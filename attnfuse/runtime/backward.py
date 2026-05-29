@@ -33,12 +33,18 @@ _BWD_TILE = {
 
 
 def _pick_backward_tile(N_q: int) -> dict:
-    """Return the best tile config for this sequence length."""
+    """Return the best tile config for this sequence length.
+
+    Ampere-tuned via benchmarks/backward_config_sweep.py on RTX 3090.
+    The BM=128 N_q<=1024 path that was best on Ampere segfaults on Hopper
+    (likely register pressure interacting with the bf16-cast workaround in
+    the dQ matmul), so we use the safer BM=64 baseline across all N. A
+    future Hopper-tuned backward sweep can refine the long-N case
+    independently via _BWD_TILE override.
+    """
     if N_q <= 512:
-        return {"BLOCK_M": 64,  "BLOCK_N": 64, "num_warps": 8, "num_stages": 2}
-    if N_q <= 1024:
-        return {"BLOCK_M": 128, "BLOCK_N": 32, "num_warps": 4, "num_stages": 2}
-    return     {"BLOCK_M": 64,  "BLOCK_N": 64, "num_warps": 4, "num_stages": 2}
+        return {"BLOCK_M": 64, "BLOCK_N": 64, "num_warps": 8, "num_stages": 2}
+    return     {"BLOCK_M": 64, "BLOCK_N": 64, "num_warps": 4, "num_stages": 2}
 
 
 def _load_backward_kernels():

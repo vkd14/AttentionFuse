@@ -1,0 +1,90 @@
+# GQA bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:01:21
+model          shape                        N backend            ms    TFLOPS
+llama3-8B      H_q=32 H_kv=8 D=128        512 attnfuse       0.070     61.47
+llama3-8B      H_q=32 H_kv=8 D=128        512 flex           0.050     86.12
+llama3-8B      H_q=32 H_kv=8 D=128       1024 attnfuse       0.200     86.09
+llama3-8B      H_q=32 H_kv=8 D=128       1024 flex           0.084    204.76
+llama3-8B      H_q=32 H_kv=8 D=128       2048 attnfuse       0.633    108.60
+llama3-8B      H_q=32 H_kv=8 D=128       2048 flex           0.247    278.24
+llama3-8B      H_q=32 H_kv=8 D=128       4096 attnfuse       2.204    124.74
+llama3-8B      H_q=32 H_kv=8 D=128       4096 flex           0.831    330.94
+llama3-70B     H_q=64 H_kv=8 D=128        512 attnfuse       0.139     61.84
+llama3-70B     H_q=64 H_kv=8 D=128        512 flex           0.057    151.83
+llama3-70B     H_q=64 H_kv=8 D=128       1024 attnfuse       0.351     97.92
+llama3-70B     H_q=64 H_kv=8 D=128       1024 flex           0.152    226.67
+llama3-70B     H_q=64 H_kv=8 D=128       2048 attnfuse       1.173    117.17
+llama3-70B     H_q=64 H_kv=8 D=128       2048 flex           0.463    296.62
+llama3-70B     H_q=64 H_kv=8 D=128       4096 attnfuse       4.272    128.69
+llama3-70B     H_q=64 H_kv=8 D=128       4096 flex           1.658    331.51
+falcon-MQA     H_q=64 H_kv=1 D=128        512 attnfuse       0.115     74.94
+falcon-MQA     H_q=64 H_kv=1 D=128        512 flex           0.056    154.05
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 attnfuse       0.351     97.96
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 flex           0.151    228.09
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 attnfuse       1.173    117.17
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 flex           0.461    298.31
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 attnfuse       4.270    128.75
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 flex           1.796    306.09
+
+[ok] wrote results/h100_2026-05-29/gqa_bench.csv
+==[done   gqa_bench  @ 0:24.95 elapsed]==
+# GQA bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:05:34
+model          shape                        N backend            ms    TFLOPS
+llama3-8B      H_q=32 H_kv=8 D=128        512 attnfuse       0.070     61.34
+llama3-8B      H_q=32 H_kv=8 D=128        512 flex           0.055     77.67
+llama3-8B      H_q=32 H_kv=8 D=128       1024 attnfuse       0.199     86.19
+llama3-8B      H_q=32 H_kv=8 D=128       1024 flex           0.084    205.19
+llama3-8B      H_q=32 H_kv=8 D=128       2048 attnfuse       0.630    109.00
+llama3-8B      H_q=32 H_kv=8 D=128       2048 flex           0.247    278.12
+llama3-8B      H_q=32 H_kv=8 D=128       4096 attnfuse       2.201    124.87
+llama3-8B      H_q=32 H_kv=8 D=128       4096 flex           0.838    328.19
+llama3-70B     H_q=64 H_kv=8 D=128        512 attnfuse       0.128     67.22
+llama3-70B     H_q=64 H_kv=8 D=128        512 flex           0.057    149.80
+llama3-70B     H_q=64 H_kv=8 D=128       1024 attnfuse       0.355     96.81
+llama3-70B     H_q=64 H_kv=8 D=128       1024 flex           0.152    226.03
+llama3-70B     H_q=64 H_kv=8 D=128       2048 attnfuse       1.177    116.73
+llama3-70B     H_q=64 H_kv=8 D=128       2048 flex           0.463    296.68
+llama3-70B     H_q=64 H_kv=8 D=128       4096 attnfuse       4.268    128.82
+llama3-70B     H_q=64 H_kv=8 D=128       4096 flex           1.846    297.83
+falcon-MQA     H_q=64 H_kv=1 D=128        512 attnfuse       0.145     59.11
+falcon-MQA     H_q=64 H_kv=1 D=128        512 flex           0.056    152.87
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 attnfuse       0.355     96.92
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 flex           0.151    227.92
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 attnfuse       1.172    117.23
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 flex           0.463    296.83
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 attnfuse       4.270    128.75
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 flex           1.832    300.05
+
+[ok] wrote results/h100_2026-05-29/gqa_bench.csv
+==[done   gqa_bench  @ 0:07.96 elapsed]==
+# GQA bench  device=NVIDIA H100 NVL
+# torch=2.5.1+cu121  2026-05-29 20:35:34
+model          shape                        N backend            ms    TFLOPS
+llama3-8B      H_q=32 H_kv=8 D=128        512 attnfuse       0.070     61.19
+llama3-8B      H_q=32 H_kv=8 D=128        512 flex           0.048     89.27
+llama3-8B      H_q=32 H_kv=8 D=128       1024 attnfuse       0.200     85.85
+llama3-8B      H_q=32 H_kv=8 D=128       1024 flex           0.084    204.44
+llama3-8B      H_q=32 H_kv=8 D=128       2048 attnfuse       0.633    108.57
+llama3-8B      H_q=32 H_kv=8 D=128       2048 flex           0.248    276.58
+llama3-8B      H_q=32 H_kv=8 D=128       4096 attnfuse       2.212    124.24
+llama3-8B      H_q=32 H_kv=8 D=128       4096 flex           0.882    311.78
+llama3-70B     H_q=64 H_kv=8 D=128        512 attnfuse       0.140     61.43
+llama3-70B     H_q=64 H_kv=8 D=128        512 flex           0.057    150.38
+llama3-70B     H_q=64 H_kv=8 D=128       1024 attnfuse       0.353     97.29
+llama3-70B     H_q=64 H_kv=8 D=128       1024 flex           0.152    226.46
+llama3-70B     H_q=64 H_kv=8 D=128       2048 attnfuse       1.173    117.21
+llama3-70B     H_q=64 H_kv=8 D=128       2048 flex           0.464    295.93
+llama3-70B     H_q=64 H_kv=8 D=128       4096 attnfuse       4.257    129.14
+llama3-70B     H_q=64 H_kv=8 D=128       4096 flex           1.787    307.70
+falcon-MQA     H_q=64 H_kv=1 D=128        512 attnfuse       0.142     60.56
+falcon-MQA     H_q=64 H_kv=1 D=128        512 flex           0.056    152.87
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 attnfuse       0.353     97.22
+falcon-MQA     H_q=64 H_kv=1 D=128       1024 flex           0.151    227.75
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 attnfuse       1.172    117.23
+falcon-MQA     H_q=64 H_kv=1 D=128       2048 flex           0.463    296.94
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 attnfuse       4.267    128.85
+falcon-MQA     H_q=64 H_kv=1 D=128       4096 flex           1.754    313.36
+
+[ok] wrote results/h100_2026-05-29/gqa_bench.csv
+==[done   gqa_bench  @ 0:07.90 elapsed]==

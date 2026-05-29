@@ -98,16 +98,23 @@ _IS_HOPPER = _detect_hopper()
 # 64-aligned M dimension; larger num_stages amortises the higher SM count
 # (132 SMs vs Ampere's 82). These defaults are starting points -- a
 # benchmark sweep on H100 hardware should refine them.
+# Updated 2026-05-29 based on the empirical sweep on H100 SXM5:
+# Hopper's 228 KB SMEM lets BLOCK_M=256 hold a large Q tile without spilling;
+# deeper num_stages exploits the WGMMA pipeline.
 _HOPPER_TABLE_F16: dict[int, TileConfig] = {
-    32:  TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=8, num_stages=3),
-    64:  TileConfig(BLOCK_M=128, BLOCK_N=128, num_warps=8, num_stages=3),
-    128: TileConfig(BLOCK_M=128, BLOCK_N=64,  num_warps=8, num_stages=3),
-    256: TileConfig(BLOCK_M=64,  BLOCK_N=64,  num_warps=8, num_stages=2),
+    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=8, num_stages=3),
+    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=8, num_stages=3),
+    128: TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=8, num_stages=3),
+    256: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=8, num_stages=2),
 }
 
+# Causal / SW / ALiBi -- the sweep showed BLOCK_M=256 wins on causal and
+# ALiBi at large N because the bigger Q tile amortises the Q-load cost
+# across more in-window KV blocks. Sliding-window prefers BLOCK_M=64
+# because its narrow per-query work doesn't justify the bigger Q tile.
 _HOPPER_TABLE_F16_SPARSE: dict[int, TileConfig] = {
-    32:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
-    64:  TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
+    32:  TileConfig(BLOCK_M=256, BLOCK_N=64, num_warps=4, num_stages=2),
+    64:  TileConfig(BLOCK_M=256, BLOCK_N=64, num_warps=4, num_stages=2),
     128: TileConfig(BLOCK_M=128, BLOCK_N=64, num_warps=4, num_stages=3),
     256: TileConfig(BLOCK_M=64,  BLOCK_N=64, num_warps=4, num_stages=2),
 }

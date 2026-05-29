@@ -1,0 +1,229 @@
+/home/azureuser/Varun/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+/home/azureuser/Varun/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+/home/azureuser/Varun/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+# 2026-05-29 19:59:55
+# device=NVIDIA H100 NVL dtype=float16
+bert-base  dense  512  naive  0.079  92.0  40.66
+bert-base  dense  512  sdpa  0.023  44.1  142.99
+bert-base  dense  512  flash_ref  0.033  44.0  97.87
+bert-base  dense  512  attnfuse  0.061  44.0  52.61
+bert-base  dense  1024  naive  0.274  248.0  46.99
+bert-base  dense  1024  sdpa  0.071  56.2  180.60
+bert-base  dense  1024  flash_ref  0.113  56.0  113.90
+bert-base  dense  1024  attnfuse  0.065  56.0  198.35
+bert-base  dense  2048  naive  1.675  848.0  30.76
+bert-base  dense  2048  sdpa  0.210  80.4  245.35
+bert-base  dense  2048  flash_ref  0.339  80.0  152.15
+bert-base  dense  2048  attnfuse  0.241  80.0  213.45
+bert-base  dense  4096  naive  5.403  3200.0  38.15
+bert-base  dense  4096  sdpa  0.896  128.8  229.98
+bert-base  dense  4096  flash_ref  1.300  128.0  158.52
+bert-base  dense  4096  attnfuse  0.910  128.0  226.65
+bert-base  sliding_window  512  naive  0.161  94.3  20.02
+bert-base  sliding_window  512  sdpa  0.164  94.3  19.67
+bert-base  sliding_window  512  attnfuse  0.062  44.0  52.04
+bert-base  sliding_window  1024  naive  0.546  257.0  23.58
+bert-base  sliding_window  1024  sdpa  0.547  257.0  23.56
+bert-base  sliding_window  1024  attnfuse  0.074  56.0  173.52
+bert-base  sliding_window  2048  naive  2.952  884.0  17.46
+bert-base  sliding_window  2048  sdpa  2.953  884.0  17.45
+bert-base  sliding_window  2048  attnfuse  0.125  80.0  413.45
+bert-base  sliding_window  4096  naive  9.638  3344.0  21.39
+bert-base  sliding_window  4096  sdpa  10.019  3344.0  20.58
+bert-base  sliding_window  4096  attnfuse  0.248  128.0  830.48
+gpt2-small  causal  512  naive  0.148  92.3  21.81
+gpt2-small  causal  512  sdpa  0.023  44.1  139.42
+gpt2-small  causal  512  flash_ref  0.034  44.0  96.14
+gpt2-small  causal  512  attnfuse  0.061  44.0  53.04
+gpt2-small  causal  1024  naive  0.528  249.0  24.42
+gpt2-small  causal  1024  sdpa  0.051  56.2  254.12
+gpt2-small  causal  1024  flash_ref  0.085  56.0  151.86
+gpt2-small  causal  1024  attnfuse  0.085  56.0  151.03
+gpt2-small  causal  2048  naive  2.899  852.0  17.78
+gpt2-small  causal  2048  sdpa  0.149  80.4  345.74
+gpt2-small  causal  2048  flash_ref  0.243  80.0  211.80
+gpt2-small  causal  2048  attnfuse  0.244  80.0  211.26
+gpt2-small  causal  4096  naive  9.325  3216.0  22.11
+gpt2-small  causal  4096  sdpa  0.483  128.8  426.64
+gpt2-small  causal  4096  flash_ref  0.824  128.0  250.34
+gpt2-small  causal  4096  attnfuse  0.796  128.0  258.84
+gpt2-small  sliding_window  512  naive  0.158  94.3  20.36
+gpt2-small  sliding_window  512  sdpa  0.166  94.3  19.44
+gpt2-small  sliding_window  512  attnfuse  0.060  44.0  53.26
+gpt2-small  sliding_window  1024  naive  0.547  257.0  23.55
+gpt2-small  sliding_window  1024  sdpa  0.547  257.0  23.55
+gpt2-small  sliding_window  1024  attnfuse  0.074  56.0  173.86
+gpt2-small  sliding_window  2048  naive  2.966  884.0  17.38
+gpt2-small  sliding_window  2048  sdpa  2.954  884.0  17.45
+gpt2-small  sliding_window  2048  attnfuse  0.124  80.0  415.11
+gpt2-small  sliding_window  4096  naive  9.646  3344.0  21.37
+gpt2-small  sliding_window  4096  sdpa  10.070  3344.0  20.47
+gpt2-small  sliding_window  4096  attnfuse  0.249  128.0  826.80
+gpt2-small  causal_alibi  512  naive  0.211  95.5  15.26
+gpt2-small  causal_alibi  512  sdpa  0.219  95.5  14.69
+gpt2-small  causal_alibi  512  attnfuse  0.063  44.0  51.29
+gpt2-small  causal_alibi  1024  naive  0.748  268.0  17.23
+gpt2-small  causal_alibi  1024  sdpa  0.748  268.0  17.23
+gpt2-small  causal_alibi  1024  attnfuse  0.090  56.0  143.11
+gpt2-small  causal_alibi  2048  naive  4.071  940.0  12.66
+gpt2-small  causal_alibi  2048  sdpa  4.053  940.0  12.71
+gpt2-small  causal_alibi  2048  attnfuse  0.257  80.0  200.70
+gpt2-small  causal_alibi  4096  naive  13.377  3592.0  15.41
+gpt2-small  causal_alibi  4096  sdpa  13.479  3592.0  15.29
+gpt2-small  causal_alibi  4096  attnfuse  0.836  128.0  246.61
+
+[ok] wrote results/h100_2026-05-29/eval_fp16.csv
+==[done   bench_fp16  @ 0:11.27 elapsed]==
+/home/azureuser/Varun/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+# 2026-05-29 20:04:44
+# device=NVIDIA H100 NVL dtype=float16
+bert-base  dense  512  naive  0.079  92.0  40.66
+bert-base  dense  512  sdpa  0.022  44.1  143.50
+bert-base  dense  512  flash_ref  0.033  44.0  98.21
+bert-base  dense  512  attnfuse  0.064  44.0  49.97
+bert-base  dense  1024  naive  0.274  248.0  46.99
+bert-base  dense  1024  sdpa  0.072  56.2  178.52
+bert-base  dense  1024  flash_ref  0.114  56.0  113.52
+bert-base  dense  1024  attnfuse  0.065  56.0  197.77
+bert-base  dense  2048  naive  1.666  848.0  30.93
+bert-base  dense  2048  sdpa  0.209  80.4  246.16
+bert-base  dense  2048  flash_ref  0.328  80.0  156.91
+bert-base  dense  2048  attnfuse  0.240  80.0  215.11
+bert-base  dense  4096  naive  5.413  3200.0  38.09
+bert-base  dense  4096  sdpa  0.889  128.8  231.86
+bert-base  dense  4096  flash_ref  1.333  128.0  154.62
+bert-base  dense  4096  attnfuse  0.913  128.0  225.90
+bert-base  sliding_window  512  naive  0.156  94.3  20.60
+bert-base  sliding_window  512  sdpa  0.165  94.3  19.53
+bert-base  sliding_window  512  attnfuse  0.062  44.0  52.00
+bert-base  sliding_window  1024  naive  0.548  257.0  23.52
+bert-base  sliding_window  1024  sdpa  0.548  257.0  23.51
+bert-base  sliding_window  1024  attnfuse  0.074  56.0  173.07
+bert-base  sliding_window  2048  naive  2.965  884.0  17.38
+bert-base  sliding_window  2048  sdpa  2.955  884.0  17.44
+bert-base  sliding_window  2048  attnfuse  0.124  80.0  415.32
+bert-base  sliding_window  4096  naive  9.645  3344.0  21.38
+bert-base  sliding_window  4096  sdpa  9.985  3344.0  20.65
+bert-base  sliding_window  4096  attnfuse  0.253  128.0  813.29
+gpt2-small  causal  512  naive  0.147  92.3  21.94
+gpt2-small  causal  512  sdpa  0.023  44.1  139.04
+gpt2-small  causal  512  flash_ref  0.034  44.0  93.64
+gpt2-small  causal  512  attnfuse  0.061  44.0  52.52
+gpt2-small  causal  1024  naive  0.528  249.0  24.38
+gpt2-small  causal  1024  sdpa  0.051  56.2  254.36
+gpt2-small  causal  1024  flash_ref  0.085  56.0  151.40
+gpt2-small  causal  1024  attnfuse  0.086  56.0  150.58
+gpt2-small  causal  2048  naive  2.920  852.0  17.65
+gpt2-small  causal  2048  sdpa  0.148  80.4  347.83
+gpt2-small  causal  2048  flash_ref  0.242  80.0  212.75
+gpt2-small  causal  2048  attnfuse  0.244  80.0  211.31
+gpt2-small  causal  4096  naive  9.329  3216.0  22.10
+gpt2-small  causal  4096  sdpa  0.489  128.8  421.60
+gpt2-small  causal  4096  flash_ref  0.822  128.0  250.92
+gpt2-small  causal  4096  attnfuse  0.793  128.0  259.89
+gpt2-small  sliding_window  512  naive  0.154  94.3  20.87
+gpt2-small  sliding_window  512  sdpa  0.163  94.3  19.78
+gpt2-small  sliding_window  512  attnfuse  0.061  44.0  53.05
+gpt2-small  sliding_window  1024  naive  0.548  257.0  23.52
+gpt2-small  sliding_window  1024  sdpa  0.548  257.0  23.52
+gpt2-small  sliding_window  1024  attnfuse  0.075  56.0  171.74
+gpt2-small  sliding_window  2048  naive  2.973  884.0  17.33
+gpt2-small  sliding_window  2048  sdpa  2.966  884.0  17.38
+gpt2-small  sliding_window  2048  attnfuse  0.124  80.0  415.86
+gpt2-small  sliding_window  4096  naive  9.644  3344.0  21.38
+gpt2-small  sliding_window  4096  sdpa  10.008  3344.0  20.60
+gpt2-small  sliding_window  4096  attnfuse  0.253  128.0  815.91
+gpt2-small  causal_alibi  512  naive  0.212  95.5  15.20
+gpt2-small  causal_alibi  512  sdpa  0.217  95.5  14.87
+gpt2-small  causal_alibi  512  attnfuse  0.062  44.0  51.73
+gpt2-small  causal_alibi  1024  naive  0.747  268.0  17.25
+gpt2-small  causal_alibi  1024  sdpa  0.748  268.0  17.22
+gpt2-small  causal_alibi  1024  attnfuse  0.090  56.0  142.73
+gpt2-small  causal_alibi  2048  naive  4.071  940.0  12.66
+gpt2-small  causal_alibi  2048  sdpa  4.054  940.0  12.71
+gpt2-small  causal_alibi  2048  attnfuse  0.257  80.0  200.62
+gpt2-small  causal_alibi  4096  naive  13.377  3592.0  15.41
+gpt2-small  causal_alibi  4096  sdpa  13.536  3592.0  15.23
+gpt2-small  causal_alibi  4096  attnfuse  0.833  128.0  247.47
+
+[ok] wrote results/h100_2026-05-29/eval_fp16.csv
+==[done   bench_fp16  @ 0:08.80 elapsed]==
+/home/azureuser/Varun/AttnFuse/benchmarks/bench_runner.py:91: UserWarning: SDPA does not natively support sliding-window/ALiBi; falling back to naive PyTorch for fair comparison.
+  return sdpa_attention(Q, K, V, causal=causal, window=window, alibi_slopes=slopes)
+# 2026-05-29 20:34:44
+# device=NVIDIA H100 NVL dtype=float16
+bert-base  dense  512  naive  0.079  92.0  40.78
+bert-base  dense  512  sdpa  0.022  44.1  144.22
+bert-base  dense  512  flash_ref  0.032  44.0  99.72
+bert-base  dense  512  attnfuse  0.060  44.0  53.59
+bert-base  dense  1024  naive  0.274  248.0  47.08
+bert-base  dense  1024  sdpa  0.071  56.2  180.76
+bert-base  dense  1024  flash_ref  0.112  56.0  114.85
+bert-base  dense  1024  attnfuse  0.064  56.0  199.98
+bert-base  dense  2048  naive  1.662  848.0  31.01
+bert-base  dense  2048  sdpa  0.208  80.4  247.60
+bert-base  dense  2048  flash_ref  0.342  80.0  150.65
+bert-base  dense  2048  attnfuse  0.249  80.0  207.14
+bert-base  dense  4096  naive  5.412  3200.0  38.09
+bert-base  dense  4096  sdpa  0.889  128.8  232.03
+bert-base  dense  4096  flash_ref  1.319  128.0  156.29
+bert-base  dense  4096  attnfuse  0.917  128.0  224.81
+bert-base  sliding_window  512  naive  0.160  94.3  20.13
+bert-base  sliding_window  512  sdpa  0.163  94.3  19.82
+bert-base  sliding_window  512  attnfuse  0.060  44.0  54.11
+bert-base  sliding_window  1024  naive  0.547  257.0  23.56
+bert-base  sliding_window  1024  sdpa  0.549  257.0  23.48
+bert-base  sliding_window  1024  attnfuse  0.075  56.0  172.37
+bert-base  sliding_window  2048  naive  2.969  884.0  17.36
+bert-base  sliding_window  2048  sdpa  2.950  884.0  17.47
+bert-base  sliding_window  2048  attnfuse  0.124  80.0  416.18
+bert-base  sliding_window  4096  naive  9.635  3344.0  21.40
+bert-base  sliding_window  4096  sdpa  10.030  3344.0  20.55
+bert-base  sliding_window  4096  attnfuse  0.249  128.0  826.49
+gpt2-small  causal  512  naive  0.147  92.3  21.95
+gpt2-small  causal  512  sdpa  0.023  44.1  139.42
+gpt2-small  causal  512  flash_ref  0.035  44.0  93.03
+gpt2-small  causal  512  attnfuse  0.060  44.0  53.35
+gpt2-small  causal  1024  naive  0.529  249.0  24.38
+gpt2-small  causal  1024  sdpa  0.051  56.2  254.28
+gpt2-small  causal  1024  flash_ref  0.085  56.0  151.60
+gpt2-small  causal  1024  attnfuse  0.085  56.0  150.75
+gpt2-small  causal  2048  naive  2.921  852.0  17.65
+gpt2-small  causal  2048  sdpa  0.148  80.4  347.11
+gpt2-small  causal  2048  flash_ref  0.243  80.0  211.87
+gpt2-small  causal  2048  attnfuse  0.244  80.0  211.48
+gpt2-small  causal  4096  naive  9.329  3216.0  22.10
+gpt2-small  causal  4096  sdpa  0.486  128.8  424.36
+gpt2-small  causal  4096  flash_ref  0.847  128.0  243.37
+gpt2-small  causal  4096  attnfuse  0.805  128.0  255.97
+gpt2-small  sliding_window  512  naive  0.155  94.3  20.82
+gpt2-small  sliding_window  512  sdpa  0.165  94.3  19.54
+gpt2-small  sliding_window  512  attnfuse  0.059  44.0  54.19
+gpt2-small  sliding_window  1024  naive  0.548  257.0  23.52
+gpt2-small  sliding_window  1024  sdpa  0.548  257.0  23.53
+gpt2-small  sliding_window  1024  attnfuse  0.076  56.0  169.11
+gpt2-small  sliding_window  2048  naive  2.964  884.0  17.39
+gpt2-small  sliding_window  2048  sdpa  2.966  884.0  17.38
+gpt2-small  sliding_window  2048  attnfuse  0.124  80.0  416.39
+gpt2-small  sliding_window  4096  naive  9.648  3344.0  21.37
+gpt2-small  sliding_window  4096  sdpa  10.017  3344.0  20.58
+gpt2-small  sliding_window  4096  attnfuse  0.250  128.0  823.47
+gpt2-small  causal_alibi  512  naive  0.213  95.5  15.11
+gpt2-small  causal_alibi  512  sdpa  0.219  95.5  14.68
+gpt2-small  causal_alibi  512  attnfuse  0.060  44.0  53.29
+gpt2-small  causal_alibi  1024  naive  0.747  268.0  17.24
+gpt2-small  causal_alibi  1024  sdpa  0.750  268.0  17.19
+gpt2-small  causal_alibi  1024  attnfuse  0.090  56.0  142.58
+gpt2-small  causal_alibi  2048  naive  4.072  940.0  12.66
+gpt2-small  causal_alibi  2048  sdpa  4.053  940.0  12.72
+gpt2-small  causal_alibi  2048  attnfuse  0.256  80.0  201.44
+gpt2-small  causal_alibi  4096  naive  13.377  3592.0  15.41
+gpt2-small  causal_alibi  4096  sdpa  13.495  3592.0  15.28
+gpt2-small  causal_alibi  4096  attnfuse  0.843  128.0  244.54
+
+[ok] wrote results/h100_2026-05-29/eval_fp16.csv
+==[done   bench_fp16  @ 0:08.74 elapsed]==
