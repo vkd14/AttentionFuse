@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import torch
 import attnfuse as af
+from attnfuse.rope_utils import build_rope_cache
 
 
 @af.attention
@@ -50,11 +51,19 @@ def _alibi(Q, K, V):
     return af.softmax(s) @ V
 
 
+@af.attention
+def _rope_causal(Q, K, V):
+    s = af.rope(Q, K)
+    s = af.causal(s)
+    return af.softmax(s) @ V
+
+
 VARIANTS = {
     "dense":         _dense,
     "causal":        _causal,
     "sliding_window": _sw,
     "causal_alibi":  _alibi,
+    "rope_causal":   _rope_causal,
 }
 
 
@@ -81,16 +90,22 @@ def main() -> int:
     K = torch.randn_like(Q); V = torch.randn_like(Q)
     fn = VARIANTS[args.variant]
 
+    extras = {}
+    if args.variant == "rope_causal":
+        cos, sin = build_rope_cache(args.seqlen, args.head_dim,
+                                     device="cuda", dtype=dtype)
+        extras = dict(cos=cos, sin=sin)
+
     # Warmup -- triggers JIT compile + populates Triton disk cache.
     # ncu will profile every kernel launch in the process, so we want
     # the warmup launches to be "uninteresting" and the FINAL launch
     # to be the one we actually care about.
     for _ in range(args.warmup):
-        fn(Q, K, V)
+        fn(Q, K, V, **extras)
     torch.cuda.synchronize()
 
     # The launch ncu measures.
-    fn(Q, K, V)
+    fn(Q, K, V, **extras)
     torch.cuda.synchronize()
 
     print(f"# profiled {args.variant} N={args.seqlen} B={args.batch} "
