@@ -632,6 +632,19 @@ infrastructure we build on. TorchInductor is PyTorch's Triton-emitting
 backend that compiles \texttt{flex\_attention}; on Hopper it provides
 TMA + WGMMA codegen which our Ampere-authored template lacks.
 
+\paragraph{CUTLASS.}
+NVIDIA CUTLASS~\cite{thakkar2023cutlass} is a C++ template library for
+matrix multiplication and attention that exposes a tile-and-pipeline
+abstraction similar in spirit to our tiled IR but operating at C++
+expression-template granularity rather than as a typed Python dataflow
+graph. CUTLASS provides explicit Hopper backends (WGMMA + TMA) which
+is the architectural gap between our Triton kernels and SDPA's
+underlying FlashAttention-2 CUDA implementation. The Triton-vs-CUTLASS
+overhead documented in our backward results (\S\ref{sec:eval_backward})
+is fundamentally because Triton emits standard MMA via tl.dot while
+CUTLASS-backed kernels emit explicit WGMMA on Hopper and use TMA
+descriptors for asynchronous memory operations.
+
 \paragraph{xFormers and Liger Kernel.}
 Meta's xFormers and the recent Liger Kernel library each ship
 hand-written Triton implementations of common attention variants.
@@ -712,6 +725,11 @@ Hao Liu and Pieter Abbeel.
 David R.~MacIver, Zac Hatfield-Dodds, et~al.
 \newblock {Hypothesis}: A new approach to property-based testing.
 \newblock \emph{JOSS}, 4(43), 2019.
+
+\bibitem{thakkar2023cutlass}
+Vijay Thakkar, Pradeep Ramani, Cris Cecka, et~al.
+\newblock {CUTLASS}: CUDA Templates for Linear Algebra Subroutines.
+\newblock NVIDIA Corporation, 2023.
 
 \end{thebibliography}
 

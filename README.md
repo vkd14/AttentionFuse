@@ -1,10 +1,32 @@
 # AttnFuse
 
-> A composable Python DSL that compiles attention to fused Triton GPU kernels.
->
-> **Status:** research artifact, post-coursework, targeting MLSys-class submission.
-> **Reference hardware:** NVIDIA RTX 3090 (Ampere sm_86). H100 (Hopper sm_90)
-> deploy scripts in `scripts/`.
+> **A composable Python DSL that compiles attention to fused Triton GPU kernels.**
+> Forward inference, autoregressive KV-cache decoding, training (backward),
+> block-sparse attention. Drops into HuggingFace via
+> `attn_implementation="attnfuse"`. Runs Llama-3-8B training at **1.06× of
+> PyTorch SDPA's hand-tuned CUDA** on an RTX 3090.
+
+[![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen)](tests/)
+[![Hardware](https://img.shields.io/badge/GPU-RTX_3090%20%7C%20H100-76b900)](scripts/H100_DEPLOY.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+## TL;DR
+
+| What you write (5 lines of Python) | What you get |
+|---|---|
+| `s = af.rope(Q, K)` (RoPE fused **before** Q@Kᵀ) | A capability `flex_attention` structurally cannot do; **up to 2.10× faster** on causal+RoPE compositions |
+| `s = af.causal(s)` | FA2-class causal kernel, 96% of SDPA at N=4096 |
+| `s = af.block_sparse(s)` + BlockMask | Sub-quadratic FLOPs in active-fraction; **7.4× over dense at 7.7% sparsity**. The only Triton-based attention compiler currently supporting block-sparse **training** |
+| `s = af.softmax(s)` then `Q.requires_grad_()` | Automatic backward via `torch.autograd`; **1.06× of PyTorch SDPA** on Llama-3-8B training step |
+| `Q.shape[2] = 1` (KV-cache decode) | Flash Decoding split-K kicks in automatically; beats `flex_attention` at **all 12** Llama-3 / Falcon × cache-size cells |
+
+**Quick install:**
+```bash
+pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+pip install triton==3.1.0
+git clone <repo>; cd AttnFuse; pip install -e ".[bench,dev]"
+python -m pytest tests/   # 100 GPU tests, ~30 sec
+```
 
 ---
 
