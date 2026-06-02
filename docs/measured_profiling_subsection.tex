@@ -1,0 +1,93 @@
+% =====================================================================
+% Drop-in subsection for AttnFuse_paper.tex.
+% Insert near the H100 results section. Requires \usepackage{booktabs}.
+% =====================================================================
+\subsection{Measured Hardware-Counter Profile (H100)}
+\label{sec:ncu}
+
+The analytical roofline in \S\ref{sec:roofline} states what the kernel
+\emph{could} achieve; this subsection states what it actually does.
+Table~\ref{tab:ncu} reports Nsight Compute counters on an H100 SXM5
+(sm\_90, CUDA 12.x, driver 535) for the forward kernel of each variant
+at $N{=}4096$, $B{=}4$, $H{=}12$, $D{=}64$, fp16. The harness
+(\texttt{benchmarks/ncu\_profile.py}) warms up Triton's JIT cache for
+three launches and profiles the fourth so the measurement is free of
+one-time compile cost.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Counter} & \textbf{Dense} & \textbf{Causal} & \textbf{SW-256} & \textbf{C+ALiBi} & \textbf{RoPE+C} \\
+\midrule
+HMMA pipe \% peak                       & 30.5 & 15.8 & 15.2 & 15.0 & 11.5 \\
+SM throughput \% peak                   & 65.7 & 35.5 & 38.1 & 37.8 & 35.5 \\
+Warp occupancy \% peak                  & 24.2 & 12.0 & 12.1 & 12.0 & 12.0 \\
+DRAM throughput \% peak                 &  2.0 &  2.1 &  6.6 &  2.0 &  1.5 \\
+Wait stalls (math-pipe deps) \%         & 13.2 & 29.9 & 28.3 & 28.4 & 29.3 \\
+Short-scoreboard stalls (SMEM) \%       &  7.7 & 19.5 & 18.5 & 19.5 & 13.4 \\
+Long-scoreboard stalls (HBM) \%         &  1.4 &  1.2 &  3.8 &  1.0 & 12.8 \\
+\midrule
+Launch: regs/thread                     &  119 &  217 &  243 &  218 &  232 \\
+Launch: SMEM/block (KB)                 &   65 &   65 &   65 &   65 &   49 \\
+Launch: block size (threads)            &  256 &  128 &  128 &  128 &  128 \\
+\bottomrule
+\end{tabular}
+\caption{Nsight Compute counters for the AttnFuse forward kernel on
+an H100 SXM5 at $N{=}4096$, fp16. ``Wait stalls'' counts cycles a warp
+is stalled on tensor-core math-pipe dependencies. SMEM and HBM stalls
+are reported per-warp-active. All percentages are \texttt{ncu}'s
+\texttt{pct\_of\_peak\_sustained\_elapsed} (or \texttt{\_active}) metric.}
+\label{tab:ncu}
+\end{table}
+
+Three observations follow.
+
+\paragraph{The H100 gap is a tensor-core feeding problem, not a
+bandwidth problem.} DRAM throughput sits at 1.5--6.6\% of peak across
+all five variants, and long-scoreboard stalls (the canonical HBM-bound
+indicator) are below 4\% on every variant except RoPE+causal. The
+kernel is firmly compute-bound on H100. Yet HMMA pipe utilisation is
+only 11.5--30.5\% of peak, with 13.2--29.9\% of cycles stalled waiting
+on tensor-core math-pipe dependencies. This is the diagnostic
+signature of an Ampere-shaped HMMA tile pipeline running on Hopper:
+each warp issues a small (\texttt{16$\times$16$\times$16}) HMMA, the
+dependency latency between issues exceeds the pipeline depth, and
+Hopper's larger WGMMA tiles, which would amortise the dependency
+across $\sim$8$\times$ more work per instruction, are not emitted by
+the current code path.
+
+\paragraph{The Ampere sparse-table heuristic inverts on Hopper.} On
+the 3090 the sparse table (causal, sliding-window, ALiBi) wins by
+shrinking BLOCK\_M from 128 to 64, raising the program count and
+filling more SMs. On H100 the same shrink doubles registers per
+thread (119$\to$217--243), halves block size (256$\to$128), and
+collapses warp occupancy to 12\%. The combined effect is roughly
+2$\times$ worse HMMA utilisation and 2$\times$ worse SM throughput
+than the dense path. Re-tuning the sparse Hopper table to keep
+BLOCK\_M=128 (or larger with WGMMA) is the lowest-effort improvement
+the profiling identifies.
+
+\paragraph{RoPE+causal has the most distinctive profile.} It is the
+only variant with material HBM-bound stalls (long-scoreboard 12.8\%,
+vs.\ 1--4\% elsewhere) and the lowest HMMA utilisation (11.5\%). The
+in-loop K rotation issues a gather over \texttt{rot\_offs\_d} that
+accesses cos/sin tables held in SMEM, but the K tile itself is HBM-
+resident on each iteration, and on Hopper the latency of that load is
+no longer hidden by the (smaller) compute behind it. This is the
+variant where the structural fusion is most valuable and where the
+Hopper-native codegen has the largest headroom to recover.
+
+\paragraph{Implications for Phase 1 Hopper codegen.} The profile
+directly motivates the three changes already listed in the future-work
+discussion (\S\ref{sec:future}): (i) emit WGMMA via Triton's
+\texttt{warp\_specialize=True} path with BLOCK\_M=128, BLOCK\_N=256;
+(ii) replace HBM loads of K/V with TMA descriptors
+(\texttt{tl.experimental\_descriptor\_load}) so the K rotation
+overlaps with copy issue; (iii) re-derive the sparse-variant tile
+table from a Hopper-side sweep rather than porting the Ampere entries.
+The expected effect: HMMA utilisation moving from 15--30\% toward the
+60--70\% range typical of CUTLASS Hopper kernels at this shape, and
+the 1.49--2.14$\times$ gap to \texttt{flex\_attention}
+(Table~\ref{tab:flex_h100}) closing.

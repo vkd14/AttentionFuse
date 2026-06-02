@@ -1,0 +1,21 @@
+==PROF== Connected to process 431525 (/home/azureuser/miniconda3/envs/attnfuse/bin/python3.11)
+# profiled sliding_window N=4096 B=4 H=12 D=64 fp16
+==PROF== Disconnected from process 431525
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","dram__bytes_read.sum.per_second","byte/s","209663619419.54"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","dram__bytes_write.sum.per_second","byte/s","49593325641.25"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","dram__throughput.avg.pct_of_peak_sustained_elapsed","%","6.58"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","l1tex__throughput.avg.pct_of_peak_sustained_elapsed","%","19.69"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","launch__block_size","","128"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","launch__registers_per_thread","register/thread","243"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","launch__shared_mem_per_block_allocated","byte/block","66688"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","launch__waves_per_multiprocessor","","5.82"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","lts__throughput.avg.pct_of_peak_sustained_elapsed","%","13.61"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","sm__pipe_tensor_op_hmma_cycles_active.avg.pct_of_peak_sustained_elapsed","%","15.24"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","sm__throughput.avg.pct_of_peak_sustained_elapsed","%","38.12"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","sm__warps_active.avg.pct_of_peak_sustained_active","%","12.11"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct","%","3.85"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","smsp__warp_issue_stalled_membar_per_warp_active.pct","%","0"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","smsp__warp_issue_stalled_mio_throttle_per_warp_active.pct","%","0.05"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","smsp__warp_issue_stalled_short_scoreboard_per_warp_active.pct","%","18.55"
+"0","431525","python3.11","127.0.0.1","attnfuse_fwd_kernel","1","7","(128, 1, 1)","(32, 48, 1)","0","9.0","Command line profiler metrics","smsp__warp_issue_stalled_wait_per_warp_active.pct","%","28.26"
