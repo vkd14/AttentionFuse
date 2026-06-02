@@ -29,8 +29,31 @@ from attnfuse.experimental.hopper_causal_fwd import hopper_causal_fwd
 try:
     from torch.nn.attention.flex_attention import flex_attention, create_block_mask
     _HAS_FLEX = True
+    _FLEX_COMPILED = torch.compile(flex_attention, dynamic=False, fullgraph=True)
 except ImportError:
     _HAS_FLEX = False
+    _FLEX_COMPILED = None
+
+
+# Cache the BlockMask per (N, device) so we build it once per shape,
+# not once per timed call. This is what the production flex_bench does;
+# without it we end up timing block-mask construction every iteration
+# and the flex number looks 60x worse than reality.
+_FLEX_MASK_CACHE: dict = {}
+
+
+def _causal_block_mask(N: int, device: torch.device):
+    if not _HAS_FLEX:
+        return None
+    key = (N, str(device))
+    bm = _FLEX_MASK_CACHE.get(key)
+    if bm is None:
+        def causal(b, h, q_idx, kv_idx):
+            return q_idx >= kv_idx
+        bm = create_block_mask(causal, B=None, H=None,
+                                Q_LEN=N, KV_LEN=N, device=device)
+        _FLEX_MASK_CACHE[key] = bm
+    return bm
 
 
 @af.attention
@@ -52,12 +75,8 @@ def _reference_attention(Q, K, V) -> torch.Tensor:
 def _flex_causal(Q, K, V) -> torch.Tensor:
     if not _HAS_FLEX:
         return None
-    B, H, N, D = Q.shape
-
-    def causal_mask(b, h, q_idx, kv_idx):
-        return q_idx >= kv_idx
-    bm = create_block_mask(causal_mask, B=None, H=None, Q_LEN=N, KV_LEN=N, device=Q.device)
-    return flex_attention(Q, K, V, block_mask=bm)
+    bm = _causal_block_mask(Q.shape[-2], Q.device)
+    return _FLEX_COMPILED(Q, K, V, block_mask=bm)
 
 
 def _time_kernel(fn: Callable, *args, warmup: int = 10, iters: int = 50) -> float:

@@ -179,11 +179,18 @@ def hopper_causal_fwd(
     block_n: int = 128,
     num_warps: int = 8,
     num_stages: int = 3,
+    warp_specialize: bool = True,
 ) -> torch.Tensor:
     """Hopper-spike launcher.
 
     Inputs must be contiguous (B, H, N, D) tensors with N matching across
     Q, K, V. Self-attention only; MHA only (Q and K have the same H).
+
+    ``warp_specialize`` enables Triton 3.3+ producer/consumer warp split
+    on sm_90+. On Hopper this decouples K/V SMEM loads from WGMMA issue,
+    which directly attacks the wait-stall budget that dominates a
+    non-specialised FA-2 inner loop. Falls back to a non-specialised
+    launch if the installed Triton does not accept the kwarg.
     """
     assert Q.is_cuda and K.is_cuda and V.is_cuda, "CUDA tensors only"
     assert Q.dim() == K.dim() == V.dim() == 4
@@ -198,20 +205,41 @@ def hopper_causal_fwd(
     sm_scale = D ** -0.5
 
     grid = (triton.cdiv(N, block_m), B * H, 1)
-    _hopper_causal_fwd_kernel[grid](
-        Q, K, V, O,
-        sm_scale,
-        Q.stride(0), Q.stride(1), Q.stride(2), Q.stride(3),
-        K.stride(0), K.stride(1), K.stride(2), K.stride(3),
-        V.stride(0), V.stride(1), V.stride(2), V.stride(3),
-        O.stride(0), O.stride(1), O.stride(2), O.stride(3),
-        B, H, N,
+    launch_kwargs = dict(
         HEAD_DIM=D,
         BLOCK_M=block_m,
         BLOCK_N=block_n,
         num_warps=num_warps,
         num_stages=num_stages,
     )
+    if warp_specialize:
+        launch_kwargs["warp_specialize"] = True
+    try:
+        _hopper_causal_fwd_kernel[grid](
+            Q, K, V, O,
+            sm_scale,
+            Q.stride(0), Q.stride(1), Q.stride(2), Q.stride(3),
+            K.stride(0), K.stride(1), K.stride(2), K.stride(3),
+            V.stride(0), V.stride(1), V.stride(2), V.stride(3),
+            O.stride(0), O.stride(1), O.stride(2), O.stride(3),
+            B, H, N,
+            **launch_kwargs,
+        )
+    except (TypeError, KeyError) as e:
+        # Older Triton (<3.3): warp_specialize kwarg not accepted. Drop and retry.
+        if "warp_specialize" not in str(e):
+            raise
+        launch_kwargs.pop("warp_specialize", None)
+        _hopper_causal_fwd_kernel[grid](
+            Q, K, V, O,
+            sm_scale,
+            Q.stride(0), Q.stride(1), Q.stride(2), Q.stride(3),
+            K.stride(0), K.stride(1), K.stride(2), K.stride(3),
+            V.stride(0), V.stride(1), V.stride(2), V.stride(3),
+            O.stride(0), O.stride(1), O.stride(2), O.stride(3),
+            B, H, N,
+            **launch_kwargs,
+        )
     return O
 
 
