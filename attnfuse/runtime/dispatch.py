@@ -125,6 +125,16 @@ def run_attention(
         return run_flash_decode(graph, Q, K, V, bundle.sm_scale,
                                 bundle.bias_kind, K.shape[1], out)
 
+    # Hopper-targeted causal forward (Phase 1 spike).
+    # Eligibility: sm_90+, causal-only, MHA or GQA, no RoPE/bias/SW,
+    # fp16/bf16, HEAD_DIM in {64, 128}, N >= 2048, no save_lse.
+    # See attnfuse/runtime/hopper_dispatch.py for the predicate.
+    from .hopper_dispatch import can_use_hopper_spike, run_hopper_spike
+    if can_use_hopper_spike(graph, Q, K, save_lse=save_lse):
+        if out is None:
+            out = torch.empty_like(Q)
+        return run_hopper_spike(graph, Q, K, V, out=out)
+
     # Cross-attention guard: causal and sliding-window only make sense when
     # N_q == N_kv (relative-position semantics require equal-length axes).
     if N_q != N_kv:

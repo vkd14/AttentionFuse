@@ -71,28 +71,33 @@ def _hopper_causal_fwd_kernel(
     stride_kb, stride_kh, stride_kn, stride_kd,
     stride_vb, stride_vh, stride_vn, stride_vd,
     stride_ob, stride_oh, stride_om, stride_od,
-    B, H, N: tl.constexpr,
+    B, H, N,
+    GROUP_SIZE: tl.constexpr,    # 1 = MHA, > 1 = GQA (h_kv = h_q // GROUP_SIZE)
     HEAD_DIM: tl.constexpr,
     BLOCK_M:  tl.constexpr,
     BLOCK_N:  tl.constexpr,
 ):
     """One program per (batch * head, m_block).
 
-    Self-attention only (N_Q == N_KV == N). MHA only (no GQA). Causal.
+    Self-attention only (N_Q == N_KV == N). Causal.
+    For GQA/MQA, Q has H heads, K and V have H // GROUP_SIZE heads; each
+    program reads K and V at h_kv = h_q // GROUP_SIZE so the same KV head
+    is consumed by GROUP_SIZE query heads (one program per query head).
     """
     pid_m  = tl.program_id(0)
     pid_bh = tl.program_id(1)
     b = pid_bh // H
     h = pid_bh %  H
+    h_kv = h // GROUP_SIZE       # 0..H_kv-1; equals h when GROUP_SIZE=1 (MHA)
 
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
     offs_d = tl.arange(0, HEAD_DIM)
 
-    Q_bh = Q_ptr + b * stride_qb + h * stride_qh
-    K_bh = K_ptr + b * stride_kb + h * stride_kh
-    V_bh = V_ptr + b * stride_vb + h * stride_vh
-    O_bh = O_ptr + b * stride_ob + h * stride_oh
+    Q_bh = Q_ptr + b * stride_qb + h    * stride_qh
+    K_bh = K_ptr + b * stride_kb + h_kv * stride_kh
+    V_bh = V_ptr + b * stride_vb + h_kv * stride_vh
+    O_bh = O_ptr + b * stride_ob + h    * stride_oh
 
     q_ptrs = Q_bh + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qd
     q_mask = offs_m[:, None] < N
@@ -170,51 +175,83 @@ def _hopper_causal_fwd_kernel(
     tl.store(o_ptrs, acc.to(O_ptr.dtype.element_ty), mask=q_mask)
 
 
+def _default_tile_for(head_dim: int) -> tuple[int, int, int, int]:
+    """Return (BLOCK_M, BLOCK_N, num_warps, num_stages) tuned per HEAD_DIM.
+
+    D=64: sweep winner on H100 NVL (Session 3) -- BN=64 nw=8 ns=3,
+          0.488 ms at N=4096 (matches flex within 10%).
+    D=128: conservative starting point. BN=32 keeps per-stage SMEM under
+          ~80 KB so 2 blocks fit per SM and occupancy doesn't collapse.
+          Should be re-swept on H100 to refine.
+    """
+    if head_dim == 64:
+        return (128, 64, 8, 3)
+    if head_dim == 128:
+        return (128, 32, 8, 3)
+    raise ValueError(f"spike supports HEAD_DIM in (64, 128), got {head_dim}")
+
+
 def hopper_causal_fwd(
     Q: torch.Tensor,
     K: torch.Tensor,
     V: torch.Tensor,
     *,
-    block_m: int = 128,
-    block_n: int = 64,    # sweep winner on H100 NVL: BN=64 beats BN=128 by 30%
-    num_warps: int = 8,   # 1 warp-group; nw=4 was 2-3x slower across the sweep
-    num_stages: int = 3,  # ns=3 vs ns=4 essentially flat at the winning BN
+    block_m: int | None = None,
+    block_n: int | None = None,
+    num_warps: int | None = None,
+    num_stages: int | None = None,
     warp_specialize: bool = True,
 ) -> torch.Tensor:
     """Hopper-spike launcher.
 
-    Inputs must be contiguous (B, H, N, D) tensors with N matching across
-    Q, K, V. Self-attention only; MHA only (Q and K have the same H).
+    Q has shape (B, H_q, N, D). K and V have shape (B, H_kv, N, D) with
+    H_q % H_kv == 0. ``H_q == H_kv`` is plain MHA; ``H_q > H_kv`` is GQA
+    with GROUP_SIZE = H_q // H_kv.
+
+    Tile config defaults to the per-HEAD_DIM sweep winner; explicitly
+    set the four block_* kwargs to override (used by the sweep harness).
 
     ``warp_specialize`` enables Triton 3.3+ producer/consumer warp split
-    on sm_90+. On Hopper this decouples K/V SMEM loads from WGMMA issue,
-    which directly attacks the wait-stall budget that dominates a
-    non-specialised FA-2 inner loop. Falls back to a non-specialised
-    launch if the installed Triton does not accept the kwarg.
+    on sm_90+. Falls back to a non-specialised launch if the installed
+    Triton does not accept the kwarg (validated on Triton 3.1).
     """
     assert Q.is_cuda and K.is_cuda and V.is_cuda, "CUDA tensors only"
     assert Q.dim() == K.dim() == V.dim() == 4
-    B, H, N, D = Q.shape
-    assert K.shape == (B, H, N, D) and V.shape == (B, H, N, D), \
-        f"K/V shape mismatch: got {K.shape} {V.shape}, expected {(B, H, N, D)}"
-    assert D == 64, f"spike supports HEAD_DIM=64 only, got {D}"
+    B, H_q, N, D = Q.shape
+    H_kv = K.shape[1]
+    assert K.shape == (B, H_kv, N, D) and V.shape == (B, H_kv, N, D), \
+        f"K/V shape mismatch: got {K.shape} {V.shape}; expected K, V " \
+        f"with (B={B}, H_kv, N={N}, D={D})"
+    assert H_q % H_kv == 0, f"H_q ({H_q}) must be a multiple of H_kv ({H_kv})"
+    assert D in (64, 128), f"spike supports HEAD_DIM in (64, 128), got {D}"
     assert Q.dtype in (torch.float16, torch.bfloat16), \
         f"spike supports fp16/bf16 only, got {Q.dtype}"
+
+    group_size = H_q // H_kv
+
+    # Tile config: use the per-D default unless caller explicitly overrides.
+    default_bm, default_bn, default_nw, default_ns = _default_tile_for(D)
+    bm = block_m   if block_m   is not None else default_bm
+    bn = block_n   if block_n   is not None else default_bn
+    nw = num_warps if num_warps is not None else default_nw
+    ns = num_stages if num_stages is not None else default_ns
 
     O = torch.empty_like(Q)
     sm_scale = D ** -0.5
 
-    grid = (triton.cdiv(N, block_m), B * H, 1)
+    grid = (triton.cdiv(N, bm), B * H_q, 1)
     launch_kwargs = dict(
+        GROUP_SIZE=group_size,
         HEAD_DIM=D,
-        BLOCK_M=block_m,
-        BLOCK_N=block_n,
-        num_warps=num_warps,
-        num_stages=num_stages,
+        BLOCK_M=bm,
+        BLOCK_N=bn,
+        num_warps=nw,
+        num_stages=ns,
     )
     if warp_specialize:
         launch_kwargs["warp_specialize"] = True
-    try:
+
+    def _launch(**extra):
         _hopper_causal_fwd_kernel[grid](
             Q, K, V, O,
             sm_scale,
@@ -222,24 +259,18 @@ def hopper_causal_fwd(
             K.stride(0), K.stride(1), K.stride(2), K.stride(3),
             V.stride(0), V.stride(1), V.stride(2), V.stride(3),
             O.stride(0), O.stride(1), O.stride(2), O.stride(3),
-            B, H, N,
-            **launch_kwargs,
+            B, H_q, N,
+            **extra,
         )
+
+    try:
+        _launch(**launch_kwargs)
     except (TypeError, KeyError) as e:
         # Older Triton (<3.3): warp_specialize kwarg not accepted. Drop and retry.
         if "warp_specialize" not in str(e):
             raise
         launch_kwargs.pop("warp_specialize", None)
-        _hopper_causal_fwd_kernel[grid](
-            Q, K, V, O,
-            sm_scale,
-            Q.stride(0), Q.stride(1), Q.stride(2), Q.stride(3),
-            K.stride(0), K.stride(1), K.stride(2), K.stride(3),
-            V.stride(0), V.stride(1), V.stride(2), V.stride(3),
-            O.stride(0), O.stride(1), O.stride(2), O.stride(3),
-            B, H, N,
-            **launch_kwargs,
-        )
+        _launch(**launch_kwargs)
     return O
 
 
