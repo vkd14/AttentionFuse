@@ -176,9 +176,9 @@ def hopper_causal_fwd(
     V: torch.Tensor,
     *,
     block_m: int = 128,
-    block_n: int = 128,
-    num_warps: int = 8,
-    num_stages: int = 3,
+    block_n: int = 64,    # sweep winner on H100 NVL: BN=64 beats BN=128 by 30%
+    num_warps: int = 8,   # 1 warp-group; nw=4 was 2-3x slower across the sweep
+    num_stages: int = 3,  # ns=3 vs ns=4 essentially flat at the winning BN
     warp_specialize: bool = True,
 ) -> torch.Tensor:
     """Hopper-spike launcher.

@@ -60,21 +60,21 @@ METRICS_CSV=$(IFS=, ; echo "${METRICS[*]}")
 echo "=== ncu profiling: flex_attention causal N=$SEQLEN fp16 ==="
 echo "    writing $OUT"
 
-# --launch-skip 8 -- skip torch.compile autotune + warmup launches.
-# Increase if the chosen kernel is still the wrong one (you'll see
-# multiple distinct Kernel Name values in the CSV).
-# --kernel-name-base mangled -- use the demangled name for filtering.
-# --kernel-name regex:... -- pick any compiled Triton kernel.
+# Strategy: bigger warmup (so torch.compile is definitely landed),
+# no --launch-skip (so we don't accidentally skip past the actual
+# flex kernel), use --kernel-name-base demangled so the filter
+# matches the human-readable Python-side name. Match anything with
+# "attention" or "flex" or starts with "triton_" -- that's what
+# Inductor emits for compiled flex kernels.
 "$NCU" \
     --target-processes all \
-    --launch-skip 8 \
-    --launch-count 4 \
-    --kernel-name-base mangled \
-    --kernel-name 'regex:triton.*' \
+    --launch-count 30 \
+    --kernel-name-base demangled \
+    --kernel-name 'regex:(triton_|.*flex.*|.*attention.*)' \
     --csv \
     --metrics "$METRICS_CSV" \
     python -m benchmarks.flex_ncu \
-        --seqlen "$SEQLEN" --warmup 6 \
+        --seqlen "$SEQLEN" --warmup 12 \
     > "$OUT" 2> "${OUT}.log"
 
 echo "[ok] $OUT"
