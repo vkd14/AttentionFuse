@@ -47,7 +47,7 @@ BATCH    = 1
 DTYPE    = torch.float16
 WARMUP   = 4
 ITERS    = 20
-SEQLENS  = [512, 1024, 2048]
+DEFAULT_SEQLENS = [512, 1024, 2048]    # 3090-safe; H100 callers should pass --seqlens 2048 4096
 BACKENDS = ["sdpa", "flex_attention", "attnfuse"]
 
 
@@ -109,6 +109,10 @@ def _fwd_only(layer, x, pos, pos_emb):
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--output", default="results/hf_llama_bench.csv")
+    p.add_argument("--seqlens", type=int, nargs="+", default=DEFAULT_SEQLENS,
+                   help="N values to bench. Default is 3090-safe [512,1024,2048]; "
+                        "on H100 pass --seqlens 2048 4096 to cover the spike "
+                        "dispatch regime (predicate gates at N>=2048).")
     args = p.parse_args()
     if not torch.cuda.is_available():
         print("CUDA not available"); return 1
@@ -116,13 +120,19 @@ def main() -> int:
     print(f"# HuggingFace Llama-3-8B (random init) bench")
     print(f"# device={torch.cuda.get_device_name(0)}")
     print(f"# {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"# Note: HF rotates Q,K via the model BEFORE calling our attention")
+    print(f"#       function, so the AttnFuse path runs plain causal (no fused")
+    print(f"#       RoPE node in the graph). On H100, the spike activates only")
+    print(f"#       for the FORWARD-ONLY stage (training step sets save_lse")
+    print(f"#       which the spike predicate currently rejects -- training")
+    print(f"#       falls back to the production Ampere kernel).")
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     fout = open(args.output, "w", newline="")
     w = csv.writer(fout)
     w.writerow(["seqlen", "stage", "backend", "latency_ms", "speedup_vs_sdpa"])
 
     print(f"{'N':>5s}  {'stage':>10s}  {'backend':>14s}  {'ms':>10s}  vs_sdpa")
-    for N in SEQLENS:
+    for N in args.seqlens:
         per_backend_ms = {"fwd": {}, "train": {}}
         for impl in BACKENDS:
             try:
