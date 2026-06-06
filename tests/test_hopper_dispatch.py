@@ -22,6 +22,7 @@ import torch
 
 import attnfuse as af
 from attnfuse.reference.pytorch_naive import naive_attention
+from attnfuse.rope_utils import build_rope_cache, apply_rope
 from attnfuse.runtime.hopper_dispatch import (
     _IS_HOPPER, can_use_hopper_spike,
 )
@@ -43,6 +44,13 @@ def _dense(Q, K, V):
 @af.attention
 def _sliding(Q, K, V):
     return af.softmax(af.sliding_window(af.scaled_dot_product(Q, K), 256)) @ V
+
+
+@af.attention
+def _rope_causal(Q, K, V):
+    s = af.rope(Q, K)
+    s = af.causal(s)
+    return af.softmax(s) @ V
 
 
 # ----------------------------------------------------------------------
@@ -114,12 +122,59 @@ def test_dispatch_numerics(B, H_q, H_kv, N, D, dtype):
 
     out = _causal(Q, K, V)
     # naive_attention assumes K,V already have H_q heads; expand for GQA.
-    g = H_q // H_kv
-    K_full = K.repeat_interleave(g, dim=1) if g > 1 else K
-    V_full = V.repeat_interleave(g, dim=1) if g > 1 else V
+    gs = H_q // H_kv
+    K_full = K.repeat_interleave(gs, dim=1) if gs > 1 else K
+    V_full = V.repeat_interleave(gs, dim=1) if gs > 1 else V
     ref = naive_attention(Q, K_full, V_full, causal=True).to(dtype)
     err = (out.float() - ref.float()).abs().max().item()
     # fp16 quantisation floor at this shape is ~2e-3; bf16 is ~8x looser
     # because of its 7-bit mantissa (vs fp16's 10).
     tol = 5e-3 if dtype is torch.float16 else 3e-2
     assert err < tol, f"err {err:.2e} too large for {dtype} at {Q.shape}"
+
+
+# ----------------------------------------------------------------------
+# RoPE+causal: Session 6 -- the structural-novelty path
+# ----------------------------------------------------------------------
+
+
+def test_predicate_accepts_rope_causal():
+    """RoPE+causal must route to the spike (it's the headline case)."""
+    Q = torch.empty(1, 4, 2048, 64, device="cuda", dtype=torch.float16)
+    K = torch.empty_like(Q); V = torch.empty_like(Q)
+    g = _rope_causal(Q, K, V, cos=torch.empty(2048, 64, device="cuda", dtype=torch.float16),
+                              sin=torch.empty(2048, 64, device="cuda", dtype=torch.float16),
+                              return_graph=True)
+    assert can_use_hopper_spike(g, Q, K) is _IS_HOPPER
+
+
+@pytest.mark.parametrize("B,H_q,H_kv,N,D", [
+    (1, 4, 4, 2048, 64),    # MHA, D=64
+    (1, 8, 2, 2048, 64),    # GQA group=4, D=64
+    (1, 4, 4, 2048, 128),   # MHA, D=128
+    (1, 8, 2, 2048, 128),   # GQA group=4, D=128
+])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_dispatch_numerics_rope_causal(B, H_q, H_kv, N, D, dtype):
+    """End-to-end: @af.attention rope_causal -> dispatch -> spike (on H100)."""
+    g = torch.Generator(device="cuda").manual_seed(0)
+    Q = torch.randn(B, H_q,  N, D, generator=g, device="cuda", dtype=dtype)
+    K = torch.randn(B, H_kv, N, D, generator=g, device="cuda", dtype=dtype)
+    V = torch.randn(B, H_kv, N, D, generator=g, device="cuda", dtype=dtype)
+    cos, sin = build_rope_cache(N, D, device="cuda", dtype=dtype)
+
+    out = _rope_causal(Q, K, V, cos=cos, sin=sin)
+
+    # Reference: rotate Q, K outside the kernel (the flex_attention path),
+    # then standard causal attention. Expand GQA explicitly.
+    gs = H_q // H_kv
+    Q_rot = apply_rope(Q, cos, sin)
+    K_rot = apply_rope(K, cos, sin)
+    K_full = K_rot.repeat_interleave(gs, dim=1) if gs > 1 else K_rot
+    V_full = V.repeat_interleave(gs, dim=1)     if gs > 1 else V
+    ref = naive_attention(Q_rot, K_full, V_full, causal=True).to(dtype)
+
+    err = (out.float() - ref.float()).abs().max().item()
+    tol = 5e-3 if dtype is torch.float16 else 3e-2
+    assert err < tol, \
+        f"err {err:.2e} too large for {dtype} at {Q.shape} (RoPE+causal)"

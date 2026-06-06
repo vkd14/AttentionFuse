@@ -9,7 +9,8 @@ Eligibility (all required):
   * GPU compute capability >= 9.0 (Hopper).
   * Graph has exactly one MaskOp with kind=CAUSAL.
   * Graph has no BiasOp (no ALiBi, no additive bias).
-  * Graph has no fused RoPE.
+  * Fused RoPE is accepted (Session 6+). Other than RoPE, the graph
+    must have no other ScoreOp transformation.
   * Norm is SOFTMAX.
   * Dtype is fp16 or bf16.
   * HEAD_DIM in {64, 128}.
@@ -72,10 +73,8 @@ def can_use_hopper_spike(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
     if list(graph.collect_biases()):
         return False
 
-    # No fused RoPE -- check any ScoreOp in the graph.
-    for node, _ in graph.walk():
-        if isinstance(node, ScoreOp) and node.rope:
-            return False
+    # RoPE is supported (Session 6). Nothing to reject here.
+    _ = ScoreOp  # used for type clarity in the import above
 
     # Softmax norm only. graph.norm() returns the (single) NormOp.
     try:
@@ -88,9 +87,30 @@ def can_use_hopper_spike(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
 
 
 def run_hopper_spike(graph: Graph, Q: torch.Tensor, K: torch.Tensor,
-                      V: torch.Tensor, out: Optional[torch.Tensor] = None) -> torch.Tensor:
-    """Launch the spike kernel. Caller guarantees ``can_use_hopper_spike``."""
-    result = hopper_causal_fwd(Q, K, V)
+                      V: torch.Tensor,
+                      cos: Optional[torch.Tensor] = None,
+                      sin: Optional[torch.Tensor] = None,
+                      out: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """Launch the spike kernel. Caller guarantees ``can_use_hopper_spike``.
+
+    If the graph uses fused RoPE, the caller must pass ``cos`` and ``sin``
+    (same convention as ``run_attention``: 2-D (N, D) or 4-D (1, 1, N, D)).
+    """
+    # Detect whether this graph uses RoPE; if so, cos/sin must be provided.
+    graph_has_rope = any(
+        isinstance(node, ScoreOp) and node.rope for node, _ in graph.walk()
+    )
+    if graph_has_rope and (cos is None or sin is None):
+        raise RuntimeError(
+            "Hopper spike: graph uses af.rope() but cos/sin were not passed "
+            "to run_attention(). The dispatch site should forward them."
+        )
+
+    if graph_has_rope:
+        result = hopper_causal_fwd(Q, K, V, cos=cos, sin=sin)
+    else:
+        result = hopper_causal_fwd(Q, K, V)
+
     if out is None:
         return result
     out.copy_(result)
