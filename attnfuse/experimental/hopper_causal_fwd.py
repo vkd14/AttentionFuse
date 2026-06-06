@@ -98,13 +98,32 @@ def _hopper_causal_fwd_kernel(
     q = tl.load(q_ptrs, mask=q_mask, other=0.0)
 
     # ----- Fused RoPE: rotate Q tile ONCE before the inner loop -----
+    # B1 NCU diagnosis (Session 7): the Q/K rotation costs long-scoreboard
+    # stalls because each tile issues an extra HBM load for the "rotated-
+    # half" tensor (Q at rot_offs_d / K at rot_offs_d). The half-swap is a
+    # pure register-level layout operation; we don't need a second HBM
+    # access. Derive the half-swap via reshape + permute + split + join,
+    # which Triton 3.x lowers to register shuffles (no SMEM / HBM traffic).
     if ROPE_KIND == 1:
         q_cos_ptrs = cos_ptr + offs_m[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
         q_sin_ptrs = sin_ptr + offs_m[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
         q_cos = tl.load(q_cos_ptrs, mask=q_mask, other=0.0)
         q_sin = tl.load(q_sin_ptrs, mask=q_mask, other=0.0)
-        q_rh_ptrs = Q_bh + offs_m[:, None] * stride_qm + rot_offs_d[None, :] * stride_qd
-        q_rot_half = tl.load(q_rh_ptrs, mask=q_mask, other=0.0)
+
+        # NeoX-style half-swap of q in registers:
+        # q_rot_half[:, :D/2] = q[:, D/2:]
+        # q_rot_half[:, D/2:] = q[:, :D/2]
+        # Recipe: (BM, D) --reshape--> (BM, 2, D/2) --permute--> (BM, D/2, 2)
+        #         --split--> (q_lo, q_hi) each (BM, D/2)
+        #         --join(q_hi, q_lo)--> (BM, D/2, 2) -- the SWAPPED order
+        #         --permute--> (BM, 2, D/2) --reshape--> (BM, D)
+        q_p = tl.reshape(q, (BLOCK_M, 2, HEAD_DIM // 2))
+        q_p = tl.permute(q_p, (0, 2, 1))                  # (BM, D/2, 2)
+        q_lo, q_hi = tl.split(q_p)                         # each (BM, D/2)
+        q_swap = tl.join(q_hi, q_lo)                        # swap order -> (BM, D/2, 2)
+        q_swap = tl.permute(q_swap, (0, 2, 1))              # (BM, 2, D/2)
+        q_rot_half = tl.reshape(q_swap, (BLOCK_M, HEAD_DIM))
+
         q = (q.to(tl.float32) * q_cos.to(tl.float32)
              + q_rot_half.to(tl.float32) * rot_sign[None, :] * q_sin.to(tl.float32)
              ).to(q.dtype)
@@ -127,13 +146,23 @@ def _hopper_causal_fwd_kernel(
         v = tl.load(v_ptrs)
 
         # ----- Fused RoPE: rotate K tile in-place every iteration -----
+        # Same half-swap-in-registers trick as the Q rotation above.
+        # Eliminates the per-tile k_rot_half HBM load; on the H100 NCU
+        # baseline this load was the single largest contributor to the
+        # long-scoreboard stall (17.45% of cycles).
         if ROPE_KIND == 1:
             k_cos_ptrs = cos_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
             k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
             k_cos = tl.load(k_cos_ptrs)
             k_sin = tl.load(k_sin_ptrs)
-            k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
-            k_rot_half = tl.load(k_rh_ptrs)
+
+            k_p = tl.reshape(k, (BLOCK_N, 2, HEAD_DIM // 2))
+            k_p = tl.permute(k_p, (0, 2, 1))
+            k_lo, k_hi = tl.split(k_p)
+            k_swap = tl.join(k_hi, k_lo)
+            k_swap = tl.permute(k_swap, (0, 2, 1))
+            k_rot_half = tl.reshape(k_swap, (BLOCK_N, HEAD_DIM))
+
             k = (k.to(tl.float32) * k_cos.to(tl.float32)
                  + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
                  ).to(k.dtype)
@@ -163,8 +192,14 @@ def _hopper_causal_fwd_kernel(
             k_sin_ptrs = sin_ptr + cur_n[:, None] * stride_rope_n + offs_d[None, :] * stride_rope_d
             k_cos = tl.load(k_cos_ptrs, mask=n_in_bounds[:, None], other=0.0)
             k_sin = tl.load(k_sin_ptrs, mask=n_in_bounds[:, None], other=0.0)
-            k_rh_ptrs = K_bh + cur_n[:, None] * stride_kn + rot_offs_d[None, :] * stride_kd
-            k_rot_half = tl.load(k_rh_ptrs, mask=n_in_bounds[:, None], other=0.0)
+
+            k_p = tl.reshape(k, (BLOCK_N, 2, HEAD_DIM // 2))
+            k_p = tl.permute(k_p, (0, 2, 1))
+            k_lo, k_hi = tl.split(k_p)
+            k_swap = tl.join(k_hi, k_lo)
+            k_swap = tl.permute(k_swap, (0, 2, 1))
+            k_rot_half = tl.reshape(k_swap, (BLOCK_N, HEAD_DIM))
+
             k = (k.to(tl.float32) * k_cos.to(tl.float32)
                  + k_rot_half.to(tl.float32) * rot_sign[None, :] * k_sin.to(tl.float32)
                  ).to(k.dtype)
