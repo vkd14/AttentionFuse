@@ -265,6 +265,111 @@ inner-loop structure is the planned next-generation Hopper path.
 % (Numbers >1.0 = AttnFuse is faster; <1.0 = AttnFuse is slower.)
 
 %% ====================================================================
+%% NEW: RoPE+causal on H100 -- Session 6+7 result + Prong B finding
+%% ====================================================================
+
+\subsection{Fused RoPE on H100: Compute--Bandwidth Calculus Shift}
+\label{sec:hopper_rope}
+
+The RTX 3090 result for the RoPE+causal composition is a $2.10\times$
+speedup over \texttt{flex\_attention}+pre-rotate (\S\ref{sec:rope}).
+We re-measured the same composition on H100 NVL at four sequence
+lengths to characterise how the Hopper compute--bandwidth ratio
+affects the fusion's value.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+$N$ & AttnFuse (ms) & flex+rotate (ms) & Speedup \\
+\midrule
+2048   & 0.253  & 0.347  & \textbf{1.37$\times$} \\
+4096   & 0.793  & 0.834  & \textbf{1.05$\times$} \\
+8192   & 2.760  & 2.270  & 0.82$\times$ \\
+16384  & 10.274 & 7.080  & 0.69$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{RoPE+causal on H100 NVL at $B{=}4$, $H{=}12$, $D{=}64$, fp16,
+with the Session-7 sweep-tuned spike (BLOCK\_M=128, BLOCK\_N=128,
+num\_warps=8, num\_stages=3). AttnFuse wins at training-context
+sequence lengths and crosses over to a loss past $N \approx 4{-}6\text{k}$.}
+\label{tab:hopper_rope}
+\end{table}
+
+\paragraph{Why the crossover.} On Ampere, fused RoPE wins because
+pre-rotation requires an HBM round-trip and Ampere's compute is
+bandwidth-starved (936\,GB/s HBM, 142\,TFLOPS fp16 tensor cores). On
+Hopper, HBM bandwidth scales $3.6\times$ (to 3.35\,TB/s) but tensor-
+core throughput scales $\approx 7\times$ (to $\sim$1000\,TFLOPS); the
+relative cost of an HBM round-trip drops less than the relative cost
+of compute. Algebraically, in-kernel rotation work scales as
+$\mathcal{O}(N^2 D / \text{BM})$ (one rotation per K-tile, inside the
+FA-2 causal loop), while pre-rotation scales as $\mathcal{O}(NHD)$
+(once per tensor). At long $N$, the fused-rotation $N^2$ term
+eventually outweighs the saved $\mathcal{O}(N)$ HBM round-trip.
+
+\paragraph{Nsight Compute diagnosis.} The H100 NVL counter profile of
+the Session-7 spike at $N{=}4096$ identifies the bottleneck precisely:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Counter} & Plain causal & RoPE+causal \\
+\midrule
+HMMA pipe \%                & 29.4  & 16.6  \\
+SM throughput \%            & 58.6  & 38.5  \\
+Warp occupancy \%           & 24.1  & 12.5  \\
+Wait stalls \% (math-pipe)  & 13.4  & 26.3  \\
+Long-scoreboard \% (HBM)    &  3.1  & 17.5  \\
+DRAM throughput \%          &  3.8  &  2.2  \\
+Regs/thread                 &  120  &  215  \\
+\bottomrule
+\end{tabular}
+\caption{Nsight Compute counters for the AttnFuse plain causal vs.\
+RoPE+causal forward kernels on H100 NVL, $N{=}4096$, fp16. The
+$5.5\times$ jump in long-scoreboard with DRAM throughput
+\emph{decreasing} is the signature of HBM-latency-blocked stalls:
+many small cos/sin/K\_rot\_half loads each individually waiting,
+without saturating bandwidth.}
+\label{tab:rope_ncu}
+\end{table}
+
+\paragraph{An attempted fix: register half-swap.} We attempted to
+eliminate the per-tile $k_\text{rot\_half}$ HBM load by deriving the
+half-swap in registers via Triton's
+\texttt{tl.reshape} + \texttt{tl.permute} + \texttt{tl.split} +
+\texttt{tl.join} chain. The half-swap is algebraically a
+constant-cost layout permutation; we expected this to be a free
+register-level operation. Measured result: long-scoreboard fell as
+predicted (17.45\,\% $\to$ 3.33\,\%), but \emph{short-scoreboard}
+(SMEM dependency stalls) doubled (7.04\,\% $\to$ 15.68\,\%), HMMA
+utilisation fell further (16.6\,\% $\to$ 10.3\,\%), and wall-clock
+\emph{regressed} 20\,\% ($0.793 \to 0.952$\,ms at $N{=}4096$).
+
+The cause is that Triton 3.3.1 lowers the reshape/permute/split/join
+chain to a SMEM round-trip on sm\_90, not to a register-level warp
+shuffle. The kernel now spills the K-tile to shared memory, performs
+the layout swap there, and reads it back. The SMEM dependency cost
+exceeds the HBM dependency cost it replaced, because Hopper's
+L2-cached HBM access for the $k_\text{rot\_half}$ load is cheaper
+than the SMEM staging Triton inserts. Closing this gap requires
+either inline PTX warp-shuffle intrinsics (\texttt{\_\_shfl\_xor\_sync})
+or a future Triton release that lowers the half-swap pattern to a
+register-level operation.
+
+\paragraph{Honest summary.} Fused RoPE remains a clean win on Ampere
+($2.10\times$) and on Hopper at training-context lengths
+($1.05$--$1.37\times$ for $N \leq 4\text{k}$). At long context, the
+calculus favours pre-rotation; the structural-novelty claim (flex
+\emph{cannot} fuse RoPE) is unchanged, but the \emph{performance}
+benefit of the fusion on H100 at $N \geq 8\text{k}$ requires the
+FA-3 producer-consumer structure or inline PTX warp shuffles to
+realise.
+
+%% ====================================================================
 %% PENDING items (Sessions 6+ produce these)
 %% ====================================================================
 %
