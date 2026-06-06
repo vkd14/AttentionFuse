@@ -1,0 +1,13 @@
+seqlen,stage,backend,latency_ms,speedup_vs_sdpa
+2048,fwd,sdpa,2.820,1.00
+2048,fwd,flex_attention,2.708,0.96
+2048,fwd,attnfuse,2.871,1.02
+2048,fwd+bwd+step,sdpa,7.266,1.00
+2048,fwd+bwd+step,flex_attention,7.485,1.03
+2048,fwd+bwd+step,attnfuse,7.648,1.05
+4096,fwd,sdpa,5.898,1.00
+4096,fwd,flex_attention,5.927,1.00
+4096,fwd,attnfuse,6.356,1.08
+4096,fwd+bwd+step,sdpa,14.392,1.00
+4096,fwd+bwd+step,flex_attention,16.018,1.11
+4096,fwd+bwd+step,attnfuse,16.512,1.15

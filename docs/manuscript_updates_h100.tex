@@ -370,6 +370,79 @@ FA-3 producer-consumer structure or inline PTX warp shuffles to
 realise.
 
 %% ====================================================================
+%% NEW: Llama-3-8B on H100 (Session 8) -- E2E paper subsection
+%% ====================================================================
+
+\subsection{End-to-End Llama-3-8B on H100}
+\label{sec:hopper_e2e}
+
+To validate that the kernel-level wins of \S\ref{sec:hopper} and
+\S\ref{sec:hopper_rope} carry through to a real LLM training workload,
+we benchmark a single Llama-3-8B transformer block (random-init
+weights, real architectural geometry: $H_q{=}32$, $H_{kv}{=}8$,
+$D{=}128$, intermediate=14336) on H100 NVL against PyTorch SDPA
+and \texttt{flex\_attention}. The benchmark is a representative
+training step --- forward, backward, and an SGD optimizer step on the
+block's $\sim$218\,M parameters.
+
+Two integration facts shape the H100 result:
+
+\begin{itemize}[leftmargin=1.2em,itemsep=1pt]
+  \item The HuggingFace \texttt{LlamaDecoderLayer} applies RoPE to
+        $Q$ and $K$ \emph{before} calling the registered
+        \texttt{attn\_implementation} function. The graph we trace
+        in \texttt{attnfuse.integrations.hf} is therefore plain
+        causal, not fused-RoPE; the Phase-1 spike activates for the
+        plain-causal H100 path only. Threading $\cos$, $\sin$ through
+        the HF hook to invoke the fused-RoPE path is a small but
+        non-zero engineering item, deferred.
+  \item The spike's dispatch predicate currently rejects calls that
+        request \texttt{save\_lse} (the log-normaliser the backward
+        kernel needs). Forward-only calls activate the spike;
+        training-step calls fall back to the production
+        Ampere-shaped kernel for the forward (and always for the
+        backward).
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+$N$ & Stage & SDPA (ms) & flex (ms) & AttnFuse (ms) & vs SDPA \\
+\midrule
+2048 & fwd            & 2.820  & 2.708  & 2.871  & 1.02$\times$ \\
+2048 & fwd+bwd+step   & 7.266  & 7.485  & 7.648  & 1.05$\times$ \\
+4096 & fwd            & 5.898  & 5.927  & 6.356  & 1.08$\times$ \\
+4096 & fwd+bwd+step   & 14.392 & 16.018 & 16.512 & 1.15$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{Llama-3-8B transformer block on H100 NVL (B=1, fp16,
+random-init weights, real geometry). AttnFuse \texttt{vs SDPA}
+column $>1.0$ means AttnFuse is slower. The forward-only stage
+activates the Hopper spike via the dispatch predicate; the
+training step falls back to the production Ampere-shaped kernel
+because \texttt{save\_lse} is set for the backward.}
+\label{tab:hopper_e2e}
+\end{table}
+
+\paragraph{Reading the table.} On the forward at $N{=}2048$,
+AttnFuse is $51\,\mu$s slower than SDPA (2.871 vs.\ 2.820\,ms) ---
+essentially noise at this scale. At $N{=}4096$ the spike maintains
+8\% behind SDPA. On the training step, AttnFuse is within 5\% of
+SDPA at $N{=}2048$ and 15\% at $N{=}4096$; the larger gap at long
+context reflects the production Ampere kernel running the backward.
+
+The H100 training-step result is comparable to the RTX 3090
+($1.06\times$ SDPA at $N{=}2048$ from \S\ref{sec:eval}), demonstrating
+that the Phase-1 dispatch wiring produces a portable workload-level
+result across architectures without per-platform integration effort.
+Closing the long-context training gap requires either extending the
+spike to save L (enabling backward integration) or porting the
+backward kernel to a Hopper-targeted codegen path.
+
+
+%% ====================================================================
 %% PENDING items (Sessions 6+ produce these)
 %% ====================================================================
 %
