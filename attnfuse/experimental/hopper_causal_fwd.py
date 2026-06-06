@@ -194,19 +194,30 @@ def _hopper_causal_fwd_kernel(
 def _default_tile_for(head_dim: int, *, rope: bool = False) -> tuple[int, int, int, int]:
     """Return (BLOCK_M, BLOCK_N, num_warps, num_stages) tuned per HEAD_DIM.
 
-    D=64 (no RoPE): sweep winner Session 3 -- BN=64 nw=8 ns=3,
-        0.488 ms at N=4096 (matches flex within 10%).
-    D=128 (no RoPE): conservative -- BN=32 nw=8 ns=3, ~2 blocks/SM.
+    Plain causal:
+      D=64:  Session 3 sweep winner BN=64 nw=8 ns=3, 0.488 ms at N=4096.
+      D=128: conservative BN=32 nw=8 ns=3, ~2 blocks/SM. To be re-swept.
 
-    RoPE variants: add cos/sin/rotated-half loads in registers per tile.
-    Pressure forces num_stages=2 to keep within Hopper's per-thread reg
-    budget. Should be re-swept on H100; these are starting points that
-    parallel the Ampere RoPE table's stage drop.
+    RoPE+causal (Session 7 sweep winner on H100 NVL):
+      D=64:  BN=128 nw=8 ns=3, 0.779 ms at N=4096, BEATS flex+pre-rotate
+             (0.837 ms) by 1.07x.
+
+             Key counterintuitive finding: BN=128 wins for RoPE even
+             though BN=64 won for plain causal. The extra per-tile loads
+             (cos, sin, K_rot_half) raise the per-iteration cost; the
+             larger BN amortises that overhead over more matmul work
+             per iteration. ns=3 works fine despite RoPE's register
+             pressure -- Hopper's 1 MB regs/SM absorbs it (Ampere's
+             256 KB does not, hence the production codegen's ns=2).
+
+      D=128: BN=64 nw=8 ns=3, a direction-of-finding extrapolation
+             (BN doubled vs the conservative starting point, ns bumped
+             to 3). Not yet re-swept; do so before committing to it.
     """
     if head_dim == 64:
-        return (128, 64, 8, 2) if rope else (128, 64, 8, 3)
+        return (128, 128, 8, 3) if rope else (128, 64, 8, 3)
     if head_dim == 128:
-        return (128, 32, 8, 2) if rope else (128, 32, 8, 3)
+        return (128, 64,  8, 3) if rope else (128, 32, 8, 3)
     raise ValueError(f"spike supports HEAD_DIM in (64, 128), got {head_dim}")
 
 
